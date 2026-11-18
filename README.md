@@ -11,10 +11,10 @@ A fork of [EchoText](https://github.com/mattjaybe/SillyTavern-EchoText) by [matt
 
 | Change | What it fixes | Status |
 |:---|:---|:---|
-| **Per-thread storage** | A SillyTavern page opened earlier could erase messages saved from another page | Planned |
-| **Automatic migration** | Moves your existing threads to the new storage, once, with a backup | Planned |
+| **Per-thread storage** | A SillyTavern page opened earlier could erase messages saved from another page | Done (1.2.6+tt.1) |
+| **Automatic migration** | Moves your existing threads to the new storage, once, with a backup | Done (1.2.6+tt.1) |
 
-Until a change is marked **Done**, this fork behaves exactly like the original EchoText. Everything else (the panel, Tethered and Untethered modes, emotions, proactive messages, images, memories, archives) is unchanged. The fork's changes live in one new file, so updates from the original keep merging in cleanly.
+Everything else (the panel, Tethered and Untethered modes, emotions, proactive messages, images, memories, archives) works as in the original EchoText. The fork's code lives in one new file, `lib/thread-store.js`, plus small marked edits to the original's files, so updates from the original keep merging in cleanly.
 
 ---
 
@@ -26,13 +26,13 @@ Until a change is marked **Done**, this fork behaves exactly like the original E
 
 - **One file per conversation.** Each thread is stored by itself in SillyTavern's own file storage, so saving one thread never touches another, and saving settings never touches any thread
 - **Merge before every save.** Before writing, the page fetches the stored thread and combines it with its own copy, message by message. Messages from both sides are kept, the newest edit wins, and deleted messages leave a hidden marker so an old copy can't bring them back
-- **Stays fresh.** The panel reloads the thread when it opens, when you come back to the page, and before generating a reply, so a page left in the background catches up on what other pages saved
+- **Stays fresh.** The panel reloads the thread when it opens, when you come back to the page or switch conversations, and before sending, so a page left in the background catches up on what other pages saved
 - **Never treats a failed load as empty.** If the server can't be reached, you keep seeing the thread you had, and it saves once the connection is back
 - **Proactive messages** from the EchoText-Proactive plugin are saved the same way, so they're protected too
 
 > **Not real-time sync.** Two open pages don't update each other live. Each picks up the other's messages on the triggers above. The fix is that nothing gets **erased**.
 
-> **What's still in settings.** Emotional state, chat influence, memories and proactive schedule state still live in SillyTavern's settings in this first version. They can still be overwritten the old way, but losing them is far less harmful than losing messages. They're candidates for a later change.
+> **What's still in settings.** Emotional state, chat influence, memories, proactive schedule state and Chat Archives still live in SillyTavern's settings in this first version. They can still be overwritten the old way, but losing them is far less harmful than losing messages. They're candidates for a later change.
 
 Threads are stored per **conversation**: each character's Tethered thread, their Untethered thread, and group threads are kept apart. This also leaves room for group chat features later.
 

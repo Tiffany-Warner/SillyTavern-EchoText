@@ -200,15 +200,15 @@ Migration must be safe to repeat: a stale page (or the original EchoText on anot
     - Order: the page's order is kept (a reply stitched into the middle stays there); unseen messages slot in by `send_date`, then `id`
     - Migration is idempotent: running it twice, or on a stale settings copy, gives the same file with no duplicates
 - **Manual, required before marking Done:**
-    - [ ] **The two-page test** (two desktop tabs): page A loads; page B sends a message; page A (still on its old copy) changes a setting or sends its own message. Page B's message is still there in both pages after a reload
+    - [x] **The two-page test** (two desktop windows side by side; passed 2026-11-18 in desktop Chrome against SillyTavern 1.19.0. Switching back to a tab also reloads it): page A loads; page B sends a message; page A (still on its old copy) changes a setting or sends its own message. Page B's message is still there in both pages after a reload
     - [ ] Smoke check in the TravelingTavern app's WebView: a thread loads and a sent message is saved to its file (confirms the file API works there)
-    - [ ] Migration from an existing install: all existing threads appear (solo, untethered, group and combined), the backup file exists, and the six stores are empty in settings
-    - [ ] Restart SillyTavern: threads load from their files
-    - [ ] Panel shows its loading state on first open of a conversation, then the thread
-    - [ ] Server briefly unreachable: the thread stays visible and saves after the connection returns
-    - [ ] Delete, re-send, regenerate (including combined mode), cancel a generation, Clear History: the result survives a reload on another page
-    - [ ] Chat Archives: save, load and Markdown export still work
-    - [ ] Proactive messages from the in-page scheduler land in the thread
+    - [~] Migration from an existing install: all existing threads appear (solo, untethered, group and combined), the backup file exists, and the six stores are empty in settings. **Partly:** on 2026-11-18 the only thread in settings was one empty untethered thread; it moved, the backup was written and the stores were emptied. Not yet tried with real messages or group threads
+    - [x] Restart SillyTavern: threads load from their files (passed 2026-11-18)
+    - [~] Panel shows its loading state on first open of a conversation, then the thread. **Not observed:** loads are instant on desktop; can be seen with DevTools network throttling. The logic is covered by automated tests
+    - [x] Server briefly unreachable: the thread stays visible and saves after the connection returns (passed 2026-11-18; SillyTavern's own "settings could not be saved" toast appears meanwhile, as expected)
+    - [x] Delete, re-send, regenerate (including combined mode), cancel a generation, Clear History: the result survives a reload on another page. **Passed 2026-11-18** in solo chats and in a group (individual and combined mode, two-window test in both), each checked on disk: unique IDs, no duplicates, text-free markers, and a combined-mode regenerated reply stored in place above the next character's older reply. Re-send (regenerate on your own message) was not tried separately; it truncates and saves like delete
+    - [x] Chat Archives: save, load and Markdown export still work (passed 2026-11-18)
+    - [~] Proactive messages from the in-page scheduler land in the thread. **Partly:** the Trigger Message button (saves through `saveChatHistory`) passed 2026-11-18. A message from the automatic scheduler (the edited `runProactiveTickForChar` path) still to be seen
 - The full two-device test (a desktop tab and the TravelingTavern app, and with EchoText-Proactive installed and server plugins on) is **1.2 Two-device verification** in `project-schema.md`, not part of 1.1
 
 ## Notes
@@ -223,6 +223,8 @@ Migration must be safe to repeat: a stale page (or the original EchoText on anot
 - **Reload before generating** happens on **Send** only (`handleSend` wraps upstream's handler, renamed `handleSendNow`). Regenerate, re-send and swipe act on a message by its position on screen, and a reload just before them could shift those positions. Their saves still merge, so nothing is lost; the reply may just not see another page's newest message. Send is refused, with a toast, if the thread hasn't loaded
 - **Untethered first-use reset:** upstream resets a character's untethered state when it first finds no thread in settings. That now happens when the thread file doesn't exist on first load, and an empty file is written so it happens once. Migration writes a file for an empty migrated thread for the same reason
 - **EchoText-Proactive queue:** reads the character's solo tethered thread (upstream read whatever the panel showed but wrote the solo thread). If the thread can't be loaded, or the write fails, messages aren't acked and stay on the server. If a write fails after the messages were added to the page, the next poll can add them a second time: a duplicate, never a loss
+
+**Upstream quirk found while testing (not changed by the fork):** while SillyTavern has a group chat open, EchoText treats every character as part of that group. Picking a character in EchoText's picker only clears EchoText's own group choice (`setOverrideGroupId(null)` in `lib/character-picker.js`), and `isGroupSession()` in `lib/group.js` then falls back to SillyTavern's open group. Texts to a single character therefore go to their thread *inside* the group, and the "Group Chat" status chip shows for non-members too. To text privately, open the character's own chat in SillyTavern first. Worth reporting to the original author.
 
 **Accepted for 1.1:**
 - **Clock skew.** `updatedAt` comes from each device's clock, so when two devices edit the same message, a device whose clock runs ahead can win. Only same-message edits on two devices are affected; adds and deletions don't depend on it
