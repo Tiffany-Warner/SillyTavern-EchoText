@@ -59,12 +59,14 @@ The first time the fork loads, your existing threads move to the new storage on 
    ```
 3. Click **Install**, then reload the page
 
-**Manually:** clone into SillyTavern's third-party extensions folder, keeping the folder name `SillyTavern-EchoText`:
+**Manually:** clone into your SillyTavern user's extensions folder (where **Install extension** puts it), keeping the folder name `SillyTavern-EchoText`:
 
 ```bash
-cd SillyTavern/public/scripts/extensions/third-party
+cd SillyTavern/data/default-user/extensions   # or data/<your user>/extensions
 git clone https://github.com/Tiffany-Warner/SillyTavern-EchoText
 ```
+
+To install it for all users instead, clone into `SillyTavern/public/scripts/extensions/third-party`.
 
 Notes:
 - The folder must stay named `SillyTavern-EchoText`. EchoText (and TravelingTavern) rely on that name
