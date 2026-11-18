@@ -4,7 +4,7 @@
 
 ## Status
 
-In Progress — steps 1–3 done (storage side written and tested in Node); next: console check of the file API, then step 4 (wire into EchoText)
+In Progress — steps 1–4 done (EchoText wired to thread-store.js, `node --test` passes); next: step 5, manual checks in SillyTavern
 
 ## Goals
 

@@ -77,8 +77,19 @@ async function send(p, text) {
 test('a missing file (404) is a finished load with an empty thread', async () => {
     const p = page(fakeServer());
     assert.equal(await p.store.load(CONV), true);
-    assert.deepEqual(p.store.getStatus(CONV), { loaded: true, loading: false, error: null });
+    assert.deepEqual(p.store.getStatus(CONV), { loaded: true, loading: false, exists: false, error: null });
     assert.deepEqual(p.store.getMessages(CONV), []);
+});
+
+test('exists turns true once the thread has been written, and on load of an existing file', async () => {
+    const server = fakeServer();
+    const p = page(server);
+    await p.store.load(CONV);
+    await send(p, 'hi');
+    assert.equal(p.store.getStatus(CONV).exists, true);
+    const other = page(server);
+    await other.store.load(CONV);
+    assert.equal(other.store.getStatus(CONV).exists, true);
 });
 
 test('a failed first load is not an empty thread: status shows the error, then retries', async () => {
@@ -279,6 +290,30 @@ test('a save during a generation keeps the page array and doesn\'t delete held r
     assert.deepEqual(texts(a.store.getMessages(CONV)), ['q', 'from B', 'reply', 'receipt update']);
 });
 
+test('with api.isGenerating, held changes apply on the first read after the generation', async () => {
+    const server = fakeServer();
+    let generating = false;
+    const a = page(server);
+    const aStore = TS.createThreadStore({
+        fetch: (url, init) => server.fetch(url, init),
+        getRequestHeaders: () => ({}),
+        getSettings: () => ({}),
+        saveSettings: () => {},
+        sleep: async () => {},
+        debounceMs: 0,
+        logger: quietLogger,
+        isGenerating: () => generating,
+    });
+    await aStore.load(CONV);
+    await a.store.load(CONV);
+    generating = true;
+    await send(a, 'from other page');
+    await aStore.load(CONV);
+    assert.deepEqual(aStore.getMessages(CONV), []);
+    generating = false;
+    assert.deepEqual(texts(aStore.getMessages(CONV)), ['from other page']);
+});
+
 // ── Proactive saves ──────────────────────────────────────────────────
 
 test('a save for a conversation not loaded yet waits for its first load', async () => {
@@ -317,6 +352,11 @@ test('migration: backup first, threads moved to files, settings emptied and save
     assert.deepEqual(storedTexts(server, TS.threadFileName(TS.groupMemberConversationId('g1', 'B.png', false))), ['member']);
     assert.deepEqual(storedTexts(server, TS.threadFileName(TS.groupCombinedConversationId('g1', false))), ['combined']);
     assert.deepEqual(TS.collectSettingsThreads(p.settings), []);
+    // An empty thread is written too, so the conversation still exists after migrating.
+    const untethered = TS.characterConversationId('Example Character.png', true);
+    assert.deepEqual(server.thread(TS.threadFileName(untethered)).messages, []);
+    await p.store.load(untethered);
+    assert.equal(p.store.getStatus(untethered).exists, true);
     assert.equal(p.settings.threadStorage.backupWritten, true);
     assert.equal(p.settings.otherSetting, 'untouched');
     assert.ok(p.settingsSaves >= 2);

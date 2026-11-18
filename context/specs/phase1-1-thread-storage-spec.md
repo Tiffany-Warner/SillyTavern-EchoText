@@ -217,6 +217,13 @@ Migration must be safe to repeat: a stale page (or the original EchoText on anot
 - Findings from the TravelingTavern investigation (EchoText 1.2.6): threads live in six stores in `extensionSettings.EchoText` (see Conversation IDs); SillyTavern's `saveSettings()` sends the whole settings file; EchoText-Proactive keeps its queue in server memory and each page polls it every 60 s (Tethered mode only, for the character it shows), then saves the whole settings file
 - Repo name stays `SillyTavern-EchoText`: SillyTavern installs extensions into a folder named after the repo, and EchoText's paths and the TravelingTavern app's detection use that name
 
+**How step 4 was wired (2026-11-18):**
+- `emotion-system.js` and `settings-modal.js` already read through the `getChatHistory` that `index.js` passes them, and proactive's group reads go through `group.js`, so none of them needed edits
+- **Generations:** instead of editing upstream's 12 `isGenerating =` lines, the store is given `isGenerating()` and applies held changes on the first read after the generation ends
+- **Reload before generating** happens on **Send** only (`handleSend` wraps upstream's handler, renamed `handleSendNow`). Regenerate, re-send and swipe act on a message by its position on screen, and a reload just before them could shift those positions. Their saves still merge, so nothing is lost; the reply may just not see another page's newest message. Send is refused, with a toast, if the thread hasn't loaded
+- **Untethered first-use reset:** upstream resets a character's untethered state when it first finds no thread in settings. That now happens when the thread file doesn't exist on first load, and an empty file is written so it happens once. Migration writes a file for an empty migrated thread for the same reason
+- **EchoText-Proactive queue:** reads the character's solo tethered thread (upstream read whatever the panel showed but wrote the solo thread). If the thread can't be loaded, or the write fails, messages aren't acked and stay on the server. If a write fails after the messages were added to the page, the next poll can add them a second time: a duplicate, never a loss
+
 **Accepted for 1.1:**
 - **Clock skew.** `updatedAt` comes from each device's clock, so when two devices edit the same message, a device whose clock runs ahead can win. Only same-message edits on two devices are affected; adds and deletions don't depend on it
 - **Edit after a remote delete.** A page that edits a message another page already deleted brings it back, because its edit is newer than the deletion marker (newer wins)
@@ -248,6 +255,7 @@ Migration must be safe to repeat: a stale page (or the original EchoText on anot
 - File names must match `^[a-zA-Z0-9_\-.]+$`, can't start with `.`, and must pass `sanitize-filename` (255 characters at most). `.json` is allowed; SillyTavern-MemoryBooks already stores `.json` files there
 - Request bodies up to 500 MB, so thread size isn't a concern
 - No compare-and-swap on upload, which is why saves read back (Saving, step 6)
+- **Checked live** (2026-11-18, console in desktop Chrome 157 on Windows, against SillyTavern 1.19.0): upload 200, UTF-8 round trip exact, a missing file returns 404, delete 200. Upload returns `path` with a leading slash (`/user/files/<name>`), which `/api/files/delete` accepts. The TravelingTavern WebView check is still to do
 
 **Decisions confirmed** (2026-11-18): in-memory cache with synchronous reads; deletions from the page's seen set (a content-hash snapshot plus own-deletions record); IDs and `updatedAt` added by `thread-store.js`, with deterministic fingerprint IDs and `fp` stored on each message; settings copies at `updatedAt: 0`; page restores (including archive loads) revive by `id`; equal `updatedAt` → stored wins; page-array ordering; proactive saves by conversation ID with ack after write; read-back with at most 3 retries; no saves before first load succeeds; remote changes held during a generation; flush on hide; Chat Archives stay in settings for 1.1; deletion markers without text and without pruning; migration only after a successful backup; clock skew and edit-after-delete accepted; full two-device test moved to 1.2.
 
