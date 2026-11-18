@@ -65,6 +65,7 @@
     loadEchoTextModule('lib/st-context-emotion.js', 'EchoTextSTContextEmotion');
     loadEchoTextModule('lib/theme-editor.js', 'EchoTextThemeEditor');
     loadEchoTextModule('lib/context-override.js', 'EchoTextContextOverride');
+    loadEchoTextModule('lib/thread-store.js', 'EchoTextThreadStore'); // fork: thread storage
 
     // ============================================================
     // THEME PRESETS
@@ -106,6 +107,7 @@
     let stContextEmotion = null;
     let themeEditor = null;
     let contextOverride = null;
+    let threadStore = null; // fork: thread storage
     let FA_REACTIONS = [];
     let selectedCharacterKey = null;
 
@@ -2497,7 +2499,100 @@
     // CHAT HISTORY MANAGEMENT
     // ============================================================
 
+    // fork: thread storage — threads live in per-conversation files, through
+    // lib/thread-store.js. These helpers connect EchoText to it.
+    let forkShownConversationId = null;
+    let forkSendPending = false;
+
+    /** Conversation ID for what the panel shows (same branches as getChatHistory). */
+    function getConversationId() {
+        const TS = window.EchoTextThreadStore;
+        const untethered = !isTetheredMode();
+        if (groupManager && groupManager.isGroupSession()) {
+            const group = groupManager.getCurrentGroup();
+            if (!group) return null;
+            if (groupManager.isCombineMode()) return TS.groupCombinedConversationId(String(group.id), untethered);
+            const char = getCurrentCharacter();
+            return char ? TS.groupMemberConversationId(String(group.id), char.avatar || char.name || 'unknown', untethered) : null;
+        }
+        const key = getCharacterKey();
+        return key ? TS.characterConversationId(key, untethered) : null;
+    }
+
+    /** Reloads the shown conversation when the panel switches to a different one. */
+    function noteShownThread() {
+        if (!threadStore) return;
+        const conversationId = getConversationId();
+        if (conversationId === forkShownConversationId) return;
+        forkShownConversationId = conversationId;
+        if (conversationId) void threadStore.load(conversationId); // load() never rejects
+    }
+
+    /** The page's copy of a thread; starts its first load if none was tried yet. */
+    function readThread(conversationId) {
+        if (!conversationId || !threadStore) return [];
+        const status = threadStore.getStatus(conversationId);
+        if (!status.loaded && !status.loading && !status.error) void threadStore.load(conversationId);
+        return threadStore.getMessages(conversationId);
+    }
+
+    /** Saves a thread (debounced merge-then-write). Resolves true once written. */
+    function writeThread(conversationId, history, options) {
+        if (!conversationId || !threadStore) return Promise.resolve(false);
+        return threadStore.save(conversationId, history, options);
+    }
+
+    function reloadShownThread() {
+        const conversationId = getConversationId();
+        return conversationId ? threadStore.load(conversationId) : Promise.resolve(false);
+    }
+
+    /** Solo tethered thread for the proactive scheduler and queue; null if it can't be loaded. */
+    async function readSoloThread(charKey) {
+        const conversationId = window.EchoTextThreadStore.characterConversationId(charKey, false);
+        await threadStore.load(conversationId);
+        return threadStore.getStatus(conversationId).loaded ? threadStore.getMessages(conversationId) : null;
+    }
+
+    function writeSoloThread(charKey, history) {
+        return writeThread(window.EchoTextThreadStore.characterConversationId(charKey, false), history);
+    }
+
+    /** Re-renders the panel when the shown thread loads or changes. */
+    function onThreadEvent(conversationId, reason) {
+        if (conversationId !== getConversationId()) return;
+        const solo = !(groupManager && groupManager.isGroupSession());
+        if (reason === 'loaded' && solo && !isTetheredMode() && !threadStore.getStatus(conversationId).exists) {
+            // Upstream resets untethered state the first time a character's thread is created.
+            if (untetheredChat) untetheredChat.resetUntetheredChat();
+            void writeThread(conversationId, []);
+        }
+        if (panelOpen) renderMessages(getChatHistory(), true);
+    }
+
+    function onThreadVisibilityChange() {
+        if (document.visibilityState === 'hidden') void threadStore.flushAll();
+        else void reloadShownThread();
+    }
+
+    /** Shows the loading (or load error) state instead of the thread until its first load succeeds. */
+    function renderThreadLoadingState(inner) {
+        const conversationId = threadStore ? getConversationId() : null;
+        if (!conversationId) return false;
+        const status = threadStore.getStatus(conversationId);
+        if (status.loaded) return false;
+        const icon = status.error ? 'fa-triangle-exclamation' : 'fa-spinner fa-spin';
+        const box = jQuery(`<div class="et-empty-chat"><i class="fa-solid ${icon}"></i><p></p></div>`);
+        box.find('p').text(status.error
+            ? `Couldn't load this conversation (${status.error}). It will retry when the panel reopens or the page becomes visible.`
+            : 'Loading conversation…');
+        inner.append(box);
+        return true;
+    }
+    // fork: thread storage — end of helpers
+
     function getChatHistory() {
+        noteShownThread(); // fork: thread storage
         // ── Group session: use group-scoped, independent storage ──────────
         if (groupManager && groupManager.isGroupSession()) {
             const group = groupManager.getCurrentGroup();
@@ -2529,17 +2624,8 @@
         const key = getCharacterKey();
         if (!key) return [];
 
-        let history;
-        if (!isTetheredMode()) {
-            if (!settings.untetheredHistory[key]) {
-                settings.untetheredHistory[key] = [];
-                if (untetheredChat) untetheredChat.resetUntetheredChat();
-                saveSettings();
-            }
-            history = settings.untetheredHistory[key];
-        } else {
-            history = settings.chatHistory[key] || [];
-        }
+        // fork: thread storage — read from the thread file (the untethered first-use reset is in onThreadEvent)
+        let history = readThread(getConversationId());
 
         // Filter out the character's first_mes to prevent it from appearing in EchoText
         const char = getCurrentCharacter();
@@ -2553,7 +2639,7 @@
         return history;
     }
 
-    function saveChatHistory(history) {
+    function saveChatHistory(history, options) { // fork: thread storage — options ({ restore }) passed through
         // ── Group session: write to group-scoped storage ──────────────────
         if (groupManager && groupManager.isGroupSession()) {
             const group = groupManager.getCurrentGroup();
@@ -2563,14 +2649,14 @@
             const untethered = !isTetheredMode();
 
             if (groupManager.isCombineMode()) {
-                groupManager.saveCombineHistory(groupId, history, untethered);
+                groupManager.saveCombineHistory(groupId, history, untethered, options); // fork: thread storage
                 return;
             }
 
             const char = getCurrentCharacter();
             if (!char) return;
             const charKey = char.avatar || char.name || 'unknown';
-            groupManager.saveGroupChatHistory(groupId, charKey, history, untethered);
+            groupManager.saveGroupChatHistory(groupId, charKey, history, untethered, options); // fork: thread storage
             if (isTetheredMode()) {
                 syncProactiveStateWithHistory(charKey, history);
             }
@@ -2581,11 +2667,11 @@
         const key = getCharacterKey();
         if (!key) return;
         if (!isTetheredMode()) {
-            settings.untetheredHistory[key] = history;
+            writeThread(getConversationId(), history, options); // fork: thread storage
             saveSettings();
             return;
         }
-        settings.chatHistory[key] = history;
+        writeThread(getConversationId(), history, options); // fork: thread storage
         syncProactiveStateWithHistory(key, history);
         saveSettings();
     }
@@ -2617,11 +2703,11 @@
         const key = getCharacterKey();
         if (!key) return;
         if (!isTetheredMode()) {
-            settings.untetheredHistory[key] = [];
+            writeThread(getConversationId(), []); // fork: thread storage
             saveSettings();
             return;
         }
-        settings.chatHistory[key] = [];
+        writeThread(getConversationId(), []); // fork: thread storage
         // Also reset emotion state when clearing history
         clearEmotionState();
         // Reset untethered influences globally
@@ -4658,6 +4744,8 @@
         const fab = jQuery('#et-fab');
         if (!fab.length) return;
 
+        if (threadStore) void reloadShownThread(); // fork: thread storage — pick up what other pages saved
+
         // Re-check background luminance on every open so that a SillyTavern
         // theme switch made while the panel was closed is picked up immediately.
         applyAdaptiveGlass();
@@ -5041,7 +5129,23 @@
         });
     }
 
+    // fork: thread storage — reload the shown thread before sending, so the reply sees what other pages saved
     function handleSend() {
+        const conversationId = (threadStore && !isGenerating) ? getConversationId() : null;
+        if (!conversationId) return handleSendNow();
+        if (forkSendPending) return;
+        forkSendPending = true;
+        threadStore.load(conversationId).then(() => {
+            forkSendPending = false;
+            if (!threadStore.getStatus(conversationId).loaded) {
+                toastr.warning('This conversation hasn\'t loaded yet, so your message wasn\'t sent. Try again in a moment.');
+                return;
+            }
+            handleSendNow();
+        });
+    }
+
+    function handleSendNow() { // fork: thread storage — upstream's handleSend, renamed
         if (isGenerating) {
             if (abortController) abortController.abort();
             return;
@@ -5696,6 +5800,8 @@
         const savedScrollTop = (preserveScroll && messagesEl) ? messagesEl.scrollTop : null;
 
         inner.empty();
+
+        if (renderThreadLoadingState(inner)) return; // fork: thread storage
 
         if (!history || history.length === 0) {
             const char = getCurrentCharacter();
@@ -7253,9 +7359,22 @@
             openGeneratedImageLightbox
         });
 
+        // fork: thread storage — the store every thread read and write goes through
+        threadStore = window.EchoTextThreadStore.createThreadStore({
+            fetch: (url, init) => fetch(url, init),
+            getRequestHeaders: () => SillyTavern.getContext().getRequestHeaders(),
+            getSettings: () => settings,
+            saveSettings,
+            isGenerating: () => isGenerating,
+        });
+        threadStore.onChange(onThreadEvent);
+        document.addEventListener('visibilitychange', onThreadVisibilityChange);
+
         groupManager = window.EchoTextGroupManager.createGroupManager({
             getSettings: () => settings,
-            saveSettings
+            saveSettings,
+            readThread,  // fork: thread storage
+            writeThread  // fork: thread storage
         });
 
         proactiveMessaging = window.EchoTextProactiveMessaging.createProactiveMessaging({
@@ -7267,6 +7386,8 @@
             getCharacterKey,
             getChatHistory,
             saveChatHistory,
+            readSoloThread,  // fork: thread storage
+            writeSoloThread, // fork: thread storage
             renderMessages,
             setTypingIndicatorVisible,
             setFabUnreadIndicator,
@@ -7331,6 +7452,11 @@
         FA_REACTIONS = emotionSystem.FA_REACTIONS;
 
         loadSettings();
+
+        // fork: thread storage — move threads still in settings into their files (backup first)
+        threadStore.migrate()
+            .catch(err => console.warn('[EchoText fork] Migration stopped:', err && err.message))
+            .then(() => reloadShownThread());
 
         // Inject mobile-specific stylesheet when running on a touch device.
         // Done AFTER loadSettings() so BASE_URL is guaranteed to be resolved.

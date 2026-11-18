@@ -6,7 +6,7 @@
 
 ## Tech Stack
 
-- **Language**: JavaScript (ES modules)
+- **Language**: JavaScript (classic scripts in `lib/`, upstream's pattern)
 - **Runs in**: SillyTavern, as a third-party extension (no build step)
 - **SillyTavern APIs**: `SillyTavern.getContext()`, `extension_settings`, `eventSource` / `event_types`, server endpoints
 - **Storage**: one stored file per conversation (location chosen in 1.1)
@@ -29,7 +29,7 @@
 - [x] Fork README (fork details only, links to the original for everything else)
 - [x] `CLAUDE.md` and context files (`ai-guidelines.md`, `coding-standards.md`, `current-feature.md`, `project-schema.md`)
 - [x] `upstream` remote added; `dev` branch created from `main`
-- [ ] `manifest.json` version set to `<upstream version>+tt.1` when the first fork change lands
+- [x] `manifest.json` version set to `<upstream version>+tt.1` when the first fork change lands (`1.2.6+tt.1`, with 1.1)
 - [x] `test/` folder with one passing placeholder test, so `node --test` runs
 
 ---
@@ -39,7 +39,7 @@
 > Goal: A message saved from any open page is never erased by another page.
 > **Unblocks TravelingTavern** 1.7, 1.7c and Phases 2–4.
 
-- [ ] 1.1 Per-thread storage — each conversation in its own file, merge before every save, reload on open / visible / before generating, automatic migration with a backup
+- [x] 1.1 Per-thread storage — each conversation in its own file, merge before every save, reload on open / visible / before generating, automatic migration with a backup
 - [ ] 1.2 Two-device verification — the two-page test with a desktop tab and the TravelingTavern app, and with EchoText-Proactive installed (server plugins on)
 
 ---

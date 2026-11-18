@@ -5,12 +5,12 @@ A small fork: fit in with upstream's code, keep fork changes isolated, and never
 ## Fitting In With Upstream
 
 - **Match upstream's style** in the files you touch (indentation, quotes, naming, how it uses jQuery or the DOM). Don't reformat or tidy upstream code
-- **Fork code goes in new files** (`thread-store.js`, …). Edits to upstream files are as small as possible, each marked `// fork: <feature>` on the changed lines or the block around them
+- **Fork code goes in new files** (`lib/thread-store.js`, …). Edits to upstream files are as small as possible, each marked `// fork: <feature>` on the changed lines or the block around them
 - Keep upstream's public names, settings keys and DOM ids and classes as they are (see Hard Rules in `CLAUDE.md`)
 
 ## JavaScript
 
-- ES modules (`import` / `export`), as upstream uses them
+- Module format as upstream uses it: each `lib/` file is a classic script wrapped in an IIFE that sets one global (e.g. `globalThis.EchoTextThreadStore`), loaded by `index.js`'s `loadEchoTextModule`. No `import` / `export` in extension files (the loader runs them with `new Function`, where they're a syntax error). Tests are ES modules and load a `lib/` file with `node:vm`
 - `const` by default, `let` when reassigned, never `var`
 - `async` / `await` over `.then()` chains; always `await` or handle a promise — no floating promises
 - Strict equality (`===`, `!==`)

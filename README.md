@@ -6,7 +6,7 @@ A fork of [EchoText](https://github.com/mattjaybe/SillyTavern-EchoText) by [matt
 
 | Change | Fixes | Status |
 |:---|:---|:---|
-| Per-thread storage | An older page erasing messages saved from another page | Planned |
+| Per-thread storage | An older page erasing messages saved from another page | Done (1.2.6+tt.1) |
 | Memory storage | An older page erasing memories saved from another page | Planned (next) |
 
 Until a change is marked Done, the fork behaves exactly like the original.
@@ -26,7 +26,7 @@ This is a bug in the original EchoText, not something the fork adds.
 
 - Each conversation (a character's Tethered thread, their Untethered thread, group threads) is stored in its own file, not in settings
 - Before saving, the page fetches the stored thread and merges it with its copy by message ID. Messages from both sides are kept, the newer edit wins, and deleted messages leave a hidden marker so an old copy can't bring them back
-- Threads reload when the panel opens, when the page becomes visible, and before generating a reply
+- Threads reload when the panel opens, when the page becomes visible, when you switch conversations, and before sending
 - A failed load never counts as an empty thread; the page keeps its copy and saves once the server is back
 - Proactive messages from EchoText-Proactive are saved the same way
 
