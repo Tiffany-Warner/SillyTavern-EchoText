@@ -1,93 +1,68 @@
-# 💬 EchoText (TravelingTavern fork)
+# EchoText (TravelingTavern fork)
 
-### Your texts stay put, even with SillyTavern open on more than one device.
+A fork of [EchoText](https://github.com/mattjaybe/SillyTavern-EchoText) by [mattjaybe](https://github.com/mattjaybe) that stops data from being lost when SillyTavern is open in more than one place (for example a desktop tab and a phone). Built for [TravelingTavern](https://github.com/Tiffany-Warner/TravelingTavern), but works in any browser. All original features are unchanged; see the [original README](https://github.com/mattjaybe/SillyTavern-EchoText#readme) for them.
 
-[![Fork of EchoText](https://img.shields.io/badge/fork%20of-mattjaybe%2FSillyTavern--EchoText-lightgrey.svg)](https://github.com/mattjaybe/SillyTavern-EchoText)
-[![SillyTavern](https://img.shields.io/badge/SillyTavern-Extension-orange.svg)](https://github.com/SillyTavern/SillyTavern)
+## Changes
 
-A fork of [EchoText](https://github.com/mattjaybe/SillyTavern-EchoText) by [mattjaybe](https://github.com/mattjaybe), the floating iMessage-style texting panel for SillyTavern. This fork keeps every EchoText feature and changes how threads are saved, so messages aren't lost when SillyTavern is open in two places at once, such as a desktop browser and a phone. It exists for [TravelingTavern](https://github.com/Tiffany-Warner/TravelingTavern), an Android companion app for SillyTavern, but works the same in any browser.
-
-## What This Fork Adds
-
-| Change | What it fixes | Status |
+| Change | Fixes | Status |
 |:---|:---|:---|
-| **Per-thread storage** | A SillyTavern page opened earlier could erase messages saved from another page | Planned |
-| **Automatic migration** | Moves your existing threads to the new storage, once, with a backup | Planned |
+| Per-thread storage | An older page erasing messages saved from another page | Done (1.2.6+tt.1) |
+| Memory storage | An older page erasing memories saved from another page | Planned (next) |
 
-Until a change is marked **Done**, this fork behaves exactly like the original EchoText. Everything else (the panel, Tethered and Untethered modes, emotions, proactive messages, images, memories, archives) is unchanged. The fork's changes live in one new file, so updates from the original keep merging in cleanly.
+Until a change is marked Done, the fork behaves exactly like the original.
 
----
+## The problem
 
-### 1. Per-Thread Storage
+The original EchoText stores threads and memories inside SillyTavern's settings file. SillyTavern saves that file whole, from each page's own copy, and a page only reads it when it loads. So if a page loaded earlier saves anything, it overwrites what other pages saved since:
 
-**The problem.** The original EchoText keeps every thread inside SillyTavern's settings. SillyTavern saves settings by sending its **whole** settings file, and every open page sends its own copy. So if SillyTavern is open on your desktop and you text a character from your phone, the next time the desktop page saves anything (a setting, a character switch, its own message), it sends its older copy and your phone's messages are gone. This was confirmed with a two-page test.
+1. Tab A loads.
+2. Tab B sends a message or saves a memory.
+3. Tab A saves anything: a setting, a character switch, its own message, or a reply that uses memories (EchoText saves memory usage counts on each reply).
+4. Tab B's message or memory is gone.
 
-**What changes.** Each thread is saved on its own, outside the settings file:
+This is a bug in the original EchoText, not something the fork adds.
 
-- **One file per conversation.** Each thread is stored by itself in SillyTavern's own file storage, so saving one thread never touches another, and saving settings never touches any thread
-- **Merge before every save.** Before writing, the page fetches the stored thread and combines it with its own copy, message by message. Messages from both sides are kept, the newest edit wins, and deleted messages leave a hidden marker so an old copy can't bring them back
-- **Stays fresh.** The panel reloads the thread when it opens, when you come back to the page, and before generating a reply, so a page left in the background catches up on what other pages saved
-- **Never treats a failed load as empty.** If the server can't be reached, you keep seeing the thread you had, and it saves once the connection is back
-- **Proactive messages** from the EchoText-Proactive plugin are saved the same way, so they're protected too
+## Per-thread storage
 
-> **Not real-time sync.** Two open pages don't update each other live. Each picks up the other's messages on the triggers above. The fix is that nothing gets **erased**.
+- Each conversation (a character's Tethered thread, their Untethered thread, group threads) is stored in its own file, not in settings
+- Before saving, the page fetches the stored thread and merges it with its copy by message ID. Messages from both sides are kept, the newer edit wins, and deleted messages leave a hidden marker so an old copy can't bring them back
+- Threads reload when the panel opens, when the page becomes visible, when you switch conversations, and before sending
+- A failed load never counts as an empty thread; the page keeps its copy and saves once the server is back
+- Proactive messages from EchoText-Proactive are saved the same way
 
-> **What's still in settings.** Emotional state, chat influence, memories and proactive schedule state still live in SillyTavern's settings in this first version. They can still be overwritten the old way, but losing them is far less harmful than losing messages. They're candidates for a later change.
+**Migration:** on first load, existing threads are backed up to one file (location logged in the console), then moved to their own files and removed from settings. If an older page or the original EchoText writes threads back into settings later, they're merged in again.
 
-Threads are stored per **conversation**: each character's Tethered thread, their Untethered thread, and group threads are kept apart. This also leaves room for group chat features later.
+This isn't live sync: pages pick up each other's messages on the triggers above. The fix is that nothing gets erased.
 
-### 2. Automatic Migration
+## Memory storage (next)
 
-The first time the fork loads, your existing threads move to the new storage on their own:
+The same approach for EchoText's memories: one file per character plus one for global memories, merged by memory ID before every save, with a backup and automatic migration.
 
-- **Backup first.** All existing threads are copied to a single backup file before anything moves. Its location is logged in the browser console
-- **Nothing to do.** Each thread is written to its own file, then removed from settings
-- **Safe to repeat.** If an older page (or the original EchoText on another device) writes old threads back into settings later, they're merged into the stored thread again. Nothing is lost or duplicated
+## Still in settings
 
----
+Emotional state, chat influence and proactive schedule state can still be overwritten the same way. They're planned for a later change.
 
 ## Installation
 
-> **⚠️ Important:** Don't run this fork and the original EchoText at the same time. They use the same panel and settings. Remove the original first, then install the fork.
+Remove the original EchoText first; the two use the same panel and settings.
 
-**From SillyTavern (recommended):**
+In SillyTavern: **Extensions → Install extension**, paste `https://github.com/Tiffany-Warner/SillyTavern-EchoText`, install, and reload.
 
-1. Open **Extensions** (the stacked blocks icon) and remove **EchoText** if it's installed
-2. Click **Install extension** and paste:
-   ```
-   https://github.com/Tiffany-Warner/SillyTavern-EchoText
-   ```
-3. Click **Install**, then reload the page
-
-**Manually:** clone into SillyTavern's third-party extensions folder, keeping the folder name `SillyTavern-EchoText`:
+Or clone it manually into your user's extensions folder:
 
 ```bash
-cd SillyTavern/public/scripts/extensions/third-party
+cd SillyTavern/data/default-user/extensions   # or data/<your user>/extensions
 git clone https://github.com/Tiffany-Warner/SillyTavern-EchoText
 ```
 
-Notes:
-- The folder must stay named `SillyTavern-EchoText`. EchoText (and TravelingTavern) rely on that name
-- Your existing EchoText settings carry over, since the fork uses the same settings
-- After installing or updating, do a hard refresh (Ctrl+Shift+R) so the browser loads the new files
+To install for all users, use `SillyTavern/public/scripts/extensions/third-party` instead.
 
-## Quick Start
+- Keep the folder name `SillyTavern-EchoText`; EchoText and TravelingTavern depend on it
+- Existing EchoText settings carry over
+- Hard refresh (Ctrl+Shift+R) after installing or updating
 
-1. Install the fork as above and reload SillyTavern
-2. Open the EchoText panel. Your existing threads migrate automatically the first time (check the browser console for the backup file's location)
-3. Text a character as usual
-4. *(Optional)* Open SillyTavern on a second device and text from there too. Messages from both stay in the thread
-5. *(Optional)* For proactive messages while the page isn't visible, install [EchoText-Proactive](https://github.com/mattjaybe/SillyTavern-EchoText-Proactive) and turn on `enableServerPlugins` in SillyTavern's `config.yaml`
+For proactive messages while no page is visible, install [EchoText-Proactive](https://github.com/mattjaybe/SillyTavern-EchoText-Proactive) and set `enableServerPlugins: true` in SillyTavern's `config.yaml`.
 
-## Credits
+## Credits and license
 
-- **EchoText**, all original features and design: [mattjaybe](https://github.com/mattjaybe), [mattjaybe/SillyTavern-EchoText](https://github.com/mattjaybe/SillyTavern-EchoText)
-- **Fork changes** (per-thread storage, migration): [Tiffany Warner](https://github.com/Tiffany-Warner)
-
-## Original EchoText Features
-
-Everything from the original works in this fork: Tethered and Untethered modes, emotional states, chat influence, proactive messaging, image generation and gallery, chat archives, the memory system, emoji reactions and read receipts, group chats, themes and mobile support. For documentation, settings and screenshots, see the [original EchoText README](https://github.com/mattjaybe/SillyTavern-EchoText#readme).
-
-## License
-
-MIT, same as the original. See [LICENSE](LICENSE).
+Original EchoText by [mattjaybe](https://github.com/mattjaybe). Fork changes by [Tiffany Warner](https://github.com/Tiffany-Warner). MIT, same as the original; see [LICENSE](LICENSE).
