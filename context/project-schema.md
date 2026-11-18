@@ -34,21 +34,22 @@
 
 ---
 
-## Phase 1 — Thread Storage
+## Phase 1 — Thread and Memory Storage
 
-> Goal: A message saved from any open page is never erased by another page.
+> Goal: A message or memory saved from any open page is never erased by another page.
 > **Unblocks TravelingTavern** 1.7, 1.7c and Phases 2–4.
 
 - [x] 1.1 Per-thread storage — each conversation in its own file, merge before every save, reload on open / visible / before generating, automatic migration with a backup
-- [ ] 1.2 Two-device verification — the two-page test with a desktop tab and the TravelingTavern app, and with EchoText-Proactive installed (server plugins on)
+- [ ] 1.2 Memory storage — character and global memories in their own files, merged before every save, automatic migration with a backup (`context/specs/phase1-2-memory-storage-spec.md`)
+- [ ] 1.3 Two-device verification — the two-page test for threads and memories with a desktop tab and the TravelingTavern app, and with EchoText-Proactive installed (server plugins on)
 
 ---
 
 ## Phase 2 — Other Per-Character Data
 
-> Goal: The rest of EchoText's per-character data is just as safe as threads.
+> Goal: The rest of EchoText's per-character data is just as safe as threads and memories.
 
-- [ ] Find everything else EchoText keeps per character or conversation in settings (emotional state, chat influence, memories, proactive schedule state, galleries, archives)
+- [ ] Find everything else EchoText keeps per character or conversation in settings (emotional state, chat influence, proactive schedule state, galleries, Chat Archives)
 - [ ] Move what matters into per-conversation storage, using the same merge-then-write approach
 - [ ] Migration with a backup, safe to repeat
 

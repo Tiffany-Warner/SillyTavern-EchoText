@@ -209,7 +209,7 @@ Migration must be safe to repeat: a stale page (or the original EchoText on anot
     - [x] Delete, re-send, regenerate (including combined mode), cancel a generation, Clear History: the result survives a reload on another page. **Passed 2026-11-18** in solo chats and in a group (individual and combined mode, two-window test in both), each checked on disk: unique IDs, no duplicates, text-free markers, and a combined-mode regenerated reply stored in place above the next character's older reply. Re-send (regenerate on your own message) was not tried separately; it truncates and saves like delete
     - [x] Chat Archives: save, load and Markdown export still work (passed 2026-11-18)
     - [~] Proactive messages from the in-page scheduler land in the thread. **Partly:** the Trigger Message button (saves through `saveChatHistory`) passed 2026-11-18. A message from the automatic scheduler (the edited `runProactiveTickForChar` path) still to be seen
-- The full two-device test (a desktop tab and the TravelingTavern app, and with EchoText-Proactive installed and server plugins on) is **1.2 Two-device verification** in `project-schema.md`, not part of 1.1
+- The full two-device test (a desktop tab and the TravelingTavern app, and with EchoText-Proactive installed and server plugins on) is **1.3 Two-device verification** in `project-schema.md` (renumbered when memory storage became 1.2), not part of 1.1
 
 ## Notes
 

@@ -36,7 +36,7 @@ This isn't live sync: pages pick up each other's messages on the triggers above.
 
 ## Memory storage (next)
 
-The same approach for EchoText's memories: one file per character plus one for global memories, merged by memory ID before every save, with a backup and automatic migration.
+The same approach for EchoText's memories: one file per character plus one for global memories is the source of truth, merged by memory ID before every save and refreshed before every reply that uses memories. A copy stays in settings so EchoText's memory screens work unchanged (and rolling back to the original keeps your memories), but that copy can only add memories that are missing from the files; it can't overwrite or bring back anything. Existing memories are backed up, then copied to the files automatically.
 
 ## Still in settings
 
