@@ -4,7 +4,7 @@
 
 ## Status
 
-In Progress — investigation done, design confirmed; next: pure functions and tests
+In Progress — steps 1–3 done (storage side written and tested in Node); next: console check of the file API, then step 4 (wire into EchoText)
 
 ## Goals
 
