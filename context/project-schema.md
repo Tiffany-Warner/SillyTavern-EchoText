@@ -6,7 +6,7 @@
 
 ## Tech Stack
 
-- **Language**: JavaScript (ES modules)
+- **Language**: JavaScript (classic scripts in `lib/`, upstream's pattern)
 - **Runs in**: SillyTavern, as a third-party extension (no build step)
 - **SillyTavern APIs**: `SillyTavern.getContext()`, `extension_settings`, `eventSource` / `event_types`, server endpoints
 - **Storage**: one stored file per conversation (location chosen in 1.1)

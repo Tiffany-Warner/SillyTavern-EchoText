@@ -24,7 +24,7 @@ There is no build step: SillyTavern loads the extension's files directly. To try
 
 ## Stack
 
-- **Plain JavaScript** (ES modules), loaded by SillyTavern as a third-party extension
+- **Plain JavaScript**, loaded by SillyTavern as a third-party extension. `lib/` modules are classic scripts that each set one global (upstream's pattern, see `coding-standards.md`)
 - **SillyTavern's extension API**: `SillyTavern.getContext()`, `extension_settings`, `eventSource` / `event_types`, `saveSettingsDebounced`, and its server endpoints
 - Whatever libraries upstream already uses (SillyTavern provides them). **No new dependencies**, no npm packages, no bundler
 - Tests: Node's built-in `node:test` and `node:assert`, for pure functions only
@@ -39,7 +39,7 @@ There is no build step: SillyTavern loads the extension's files directly. To try
 ## Architecture
 
 - Upstream's files stay where they are. Fork code goes in **new files** wherever possible:
-    - `thread-store.js` — the only code that knows where and how threads are stored: conversation IDs, file names, fetch, merge, save, migration
+    - `lib/thread-store.js` — the only code that knows where and how threads are stored: conversation IDs, file names, fetch, merge, save, migration
 - Edits to upstream files are as small as possible and each is marked with a `// fork: <feature>` comment, so an upstream merge shows exactly where the fork differs
 - Tests live in `test/`, one file per module (e.g. `test/thread-store.test.js`)
 
