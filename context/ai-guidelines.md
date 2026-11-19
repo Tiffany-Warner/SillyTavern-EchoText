@@ -15,7 +15,7 @@ This is the common workflow that we will use for every single feature/fix:
 1. **Document** - Document the feature in @context/current-feature.md.
 2. **Branch** - Create new branch for feature, fix, etc. from `dev`
 3. **Implement** - Implement the feature/fix that I create in @context/current-feature.md
-4. **Test** - Run `node --test` and fix any failures — required before every commit and merge. Then verify it works in SillyTavern itself: install the branch, hard-refresh (Ctrl+Shift+R), and use the panel in a desktop browser. Anything that touches thread storage also needs the spec's two-page test (two SillyTavern pages open at once), and a check in the TravelingTavern app when the spec asks for it
+4. **Test** - Run `node --test` and fix any failures — required before every commit and merge. Then verify it works in SillyTavern itself: install the branch, hard-refresh (Ctrl+Shift+R), and use the panel in a desktop browser. Anything that touches thread or memory storage also needs the spec's two-page test (two SillyTavern pages open at once), and a check in a phone browser when the spec asks for it
 5. **Iterate** - Iterate and change things if needed
 6. **Commit** - Only after tests pass and everything works
 7. **Merge** - Merge into `dev` and push `dev`. Never merge or push into `main` (see Branching)
@@ -62,7 +62,7 @@ This repo is public. Nothing that identifies my network, devices or accounts goe
 
 - No real IP addresses, ports tied to my machines, Tailscale machine or tailnet names, hostnames, usernames, emails, passwords, tokens or API keys
 - No real chat content, EchoText threads, character names from my library, exported settings or backups from my SillyTavern. Tests and examples use invented characters and messages
-- In history entries, describe the setup instead: "against SillyTavern 1.19.0 in Chrome", "with the TravelingTavern app on the Pixel 8"
+- In history entries, describe the setup instead: "against SillyTavern 1.19.0 in Chrome", "in Chrome on a phone"
 - In code, tests and examples, use placeholders only: `100.64.0.2:8000`, `desktop.tail1234.ts.net`, `user` / `pass`, `Example Character.png`
 - Before every commit, check the diff for anything like the above. If something private was already committed, stop and tell me — don't just overwrite it, since it stays in Git history
 
@@ -102,5 +102,5 @@ Review AI-generated code periodically, especially for:
 - Data safety (no path where a message can be lost: failed fetches, migrations, merges, deletions; backups before anything destructive)
 - Security (safe file names from any avatar name, no `eval` or HTML built from message text, nothing sensitive in console logs)
 - Performance (saves debounced per thread, no fetch on every keystroke, no whole-thread re-render when nothing changed)
-- Upstream-friendliness (edits to upstream files small and marked, nothing renamed that the TravelingTavern app relies on)
+- Upstream-friendliness (edits to upstream files small and marked, nothing of upstream's renamed)
 - Patterns (matches existing codebase?)

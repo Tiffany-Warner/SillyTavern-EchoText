@@ -1,6 +1,6 @@
-# EchoText (TravelingTavern fork)
+# EchoText (bug-fix fork)
 
-A fork of [EchoText](https://github.com/mattjaybe/SillyTavern-EchoText) by [mattjaybe](https://github.com/mattjaybe) that stops data from being lost when SillyTavern is open in more than one place (for example a desktop tab and a phone). Built for [TravelingTavern](https://github.com/Tiffany-Warner/TravelingTavern), but works in any browser. All original features are unchanged; see the [original README](https://github.com/mattjaybe/SillyTavern-EchoText#readme) for them.
+A fork of [EchoText](https://github.com/mattjaybe/SillyTavern-EchoText) by [mattjaybe](https://github.com/mattjaybe) that fixes bugs in the original, starting with data being lost when SillyTavern is open in more than one place (for example a desktop tab and a phone). It adds no features: everything works as in the original, so see the [original README](https://github.com/mattjaybe/SillyTavern-EchoText#readme) for how to use EchoText.
 
 ## Changes
 
@@ -36,7 +36,7 @@ This isn't live sync: pages pick up each other's messages on the triggers above.
 
 ## Memory storage (next)
 
-The same approach for EchoText's memories: one file per character plus one for global memories, merged by memory ID before every save, with a backup and automatic migration.
+The same approach for EchoText's memories: one file per character plus one for global memories is the source of truth, merged by memory ID before every save and refreshed before every reply that uses memories. A copy stays in settings so EchoText's memory screens work unchanged (and rolling back to the original keeps your memories), but that copy can only add memories that are missing from the files; it can't overwrite or bring back anything. Existing memories are backed up, then copied to the files automatically.
 
 ## Still in settings
 
@@ -57,7 +57,7 @@ git clone https://github.com/Tiffany-Warner/SillyTavern-EchoText
 
 To install for all users, use `SillyTavern/public/scripts/extensions/third-party` instead.
 
-- Keep the folder name `SillyTavern-EchoText`; EchoText and TravelingTavern depend on it
+- Keep the folder name `SillyTavern-EchoText`; EchoText depends on it
 - Existing EchoText settings carry over
 - Hard refresh (Ctrl+Shift+R) after installing or updating
 

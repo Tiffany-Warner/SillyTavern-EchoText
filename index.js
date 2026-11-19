@@ -66,6 +66,7 @@
     loadEchoTextModule('lib/theme-editor.js', 'EchoTextThemeEditor');
     loadEchoTextModule('lib/context-override.js', 'EchoTextContextOverride');
     loadEchoTextModule('lib/thread-store.js', 'EchoTextThreadStore'); // fork: thread storage
+    loadEchoTextModule('lib/memory-store.js', 'EchoTextMemoryStore'); // fork: memory storage
 
     // ============================================================
     // THEME PRESETS
@@ -108,6 +109,7 @@
     let themeEditor = null;
     let contextOverride = null;
     let threadStore = null; // fork: thread storage
+    let memoryStore = null; // fork: memory storage
     let FA_REACTIONS = [];
     let selectedCharacterKey = null;
 
@@ -362,6 +364,7 @@
 
     function saveSettings() {
         SillyTavern.getContext().saveSettingsDebounced();
+        if (memoryStore) memoryStore.noteSettingsSaved(); // fork: memory storage — detect memory changes after every EchoText save
     }
 
     // ============================================================
@@ -2199,6 +2202,7 @@
         // ── 3. MEMORY & MOOD ─────────────────────────────────────────────────────
         // Shared memories (inside jokes, people, hobbies, etc.) fire in both modes.
         // Emotion state is tethered-only (it depends on live ST chat context).
+        if (memoryStore && settings.memoryEnabled) await refreshMemories(); // fork: memory storage — fresh memories before injecting (waits ~2 s at most)
         prompt += buildInsideJokesContext();
         if (tethered) {
             prompt += buildEmotionContext();
@@ -2526,6 +2530,7 @@
         if (conversationId === forkShownConversationId) return;
         forkShownConversationId = conversationId;
         if (conversationId) void threadStore.load(conversationId); // load() never rejects
+        void refreshMemories(); // fork: memory storage — the new character's memories
     }
 
     /** The page's copy of a thread; starts its first load if none was tried yet. */
@@ -2571,8 +2576,27 @@
     }
 
     function onThreadVisibilityChange() {
-        if (document.visibilityState === 'hidden') void threadStore.flushAll();
-        else void reloadShownThread();
+        if (document.visibilityState === 'hidden') {
+            void threadStore.flushAll();
+            if (memoryStore) void memoryStore.flushAll(); // fork: memory storage
+        } else {
+            void reloadShownThread();
+            void refreshMemories(); // fork: memory storage
+        }
+    }
+
+    // fork: memory storage — memory scopes EchoText uses right now (global, plus the character's in per-character mode)
+    function currentMemoryScopes() {
+        const MS = window.EchoTextMemoryStore;
+        const scopes = [MS.GLOBAL_SCOPE_ID];
+        const charKey = getCharacterKey();
+        if ((settings.memoryScope || 'per-character') !== 'global' && charKey) scopes.push(MS.characterScopeId(charKey));
+        return scopes;
+    }
+
+    /** Saves this page's memory changes, then merges the files in. Never rejects. */
+    function refreshMemories() {
+        return memoryStore ? memoryStore.refreshForPrompt(currentMemoryScopes()) : Promise.resolve();
     }
 
     /** Shows the loading (or load error) state instead of the thread until its first load succeeds. */
@@ -4745,6 +4769,7 @@
         if (!fab.length) return;
 
         if (threadStore) void reloadShownThread(); // fork: thread storage — pick up what other pages saved
+        void refreshMemories(); // fork: memory storage
 
         // Re-check background luminance on every open so that a SillyTavern
         // theme switch made while the panel was closed is picked up immediately.
@@ -7370,6 +7395,13 @@
         threadStore.onChange(onThreadEvent);
         document.addEventListener('visibilitychange', onThreadVisibilityChange);
 
+        // fork: memory storage — files are the source of truth; started after loadSettings() below
+        memoryStore = window.EchoTextMemoryStore.createMemoryStore({
+            fetch: (url, init) => fetch(url, init),
+            getRequestHeaders: () => SillyTavern.getContext().getRequestHeaders(),
+            getSettings: () => settings,
+        });
+
         groupManager = window.EchoTextGroupManager.createGroupManager({
             getSettings: () => settings,
             saveSettings,
@@ -7457,6 +7489,9 @@
         threadStore.migrate()
             .catch(err => console.warn('[EchoText fork] Migration stopped:', err && err.message))
             .then(() => reloadShownThread());
+
+        // fork: memory storage — page-start snapshot, backup, then memories into their files
+        memoryStore.start().catch(err => console.warn('[EchoText fork] Memory start stopped:', err && err.message));
 
         // Inject mobile-specific stylesheet when running on a touch device.
         // Done AFTER loadSettings() so BASE_URL is guaranteed to be resolved.
