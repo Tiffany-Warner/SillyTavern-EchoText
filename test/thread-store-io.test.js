@@ -72,6 +72,53 @@ async function send(p, text) {
     return saved;
 }
 
+// ── Shared file access ───────────────────────────────────────────────
+
+function fileAccess(server) {
+    return TS.createFileAccess({
+        fetch: (url, init) => server.fetch(url, init),
+        getRequestHeaders: () => ({}),
+        random: () => 0,
+        sleep: async () => {},
+        logger: quietLogger,
+    });
+}
+
+test('fetchText: 404 is null, other HTTP errors throw, text round-trips through uploadJson', async () => {
+    const server = fakeServer();
+    const files = fileAccess(server);
+    assert.equal(await files.fetchText('echotext-x.json'), null);
+    await files.uploadJson('echotext-x.json', { hello: 'wörld ✓' });
+    assert.deepEqual(JSON.parse(await files.fetchText('echotext-x.json')), { hello: 'wörld ✓' });
+    const original = server.fetch;
+    server.fetch = async (url, init) => (url.startsWith('/user/files/') ? { ok: false, status: 500, text: async () => '' } : original(url, init));
+    await assert.rejects(files.fetchText('echotext-x.json'), /HTTP 500/);
+});
+
+test('writeVerified uses the codec and retries with its merge after a concurrent write', async () => {
+    const server = fakeServer();
+    const files = fileAccess(server);
+    const original = server.fetch;
+    let raced = false;
+    server.fetch = async (url, init) => {
+        const result = await original(url, init);
+        if (url === '/api/files/upload' && !raced) {
+            raced = true;
+            server.files.set('echotext-list.json', JSON.stringify({ items: ['theirs'] }));
+        }
+        return result;
+    };
+    const codec = {
+        build: entries => ({ items: entries }),
+        parse: text => JSON.parse(text).items,
+        isReflected: (stored, entries) => entries.every(e => stored.includes(e)),
+        merge: (stored, entries) => [...new Set([...stored, ...entries])],
+    };
+    const stored = await files.writeVerified('echotext-list.json', ['mine'], codec);
+    assert.deepEqual(stored, ['theirs', 'mine']);
+    assert.equal(server.uploads, 2);
+});
+
 // ── Loading ──────────────────────────────────────────────────────────
 
 test('a missing file (404) is a finished load with an empty thread', async () => {
