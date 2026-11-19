@@ -4,7 +4,7 @@
 
 ## Status
 
-In Progress — investigation
+In Progress — steps 1–4 done (memory store written, tested in Node, wired into `index.js`); next: step 5, manual checks in SillyTavern
 
 ## Goals
 
