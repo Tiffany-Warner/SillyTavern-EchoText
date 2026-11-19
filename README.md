@@ -1,4 +1,4 @@
-# EchoText (TravelingTavern fork)
+# EchoText (TravelingTavern fork- DEPRECATED. Only bug fixes now)
 
 A fork of [EchoText](https://github.com/mattjaybe/SillyTavern-EchoText) by [mattjaybe](https://github.com/mattjaybe) that stops data from being lost when SillyTavern is open in more than one place (for example a desktop tab and a phone). Built for [TravelingTavern](https://github.com/Tiffany-Warner/TravelingTavern), but works in any browser. All original features are unchanged; see the [original README](https://github.com/mattjaybe/SillyTavern-EchoText#readme) for them.
 
