@@ -1,6 +1,6 @@
-# EchoText (TravelingTavern fork)
+# EchoText (bug-fix fork)
 
-A fork of [EchoText](https://github.com/mattjaybe/SillyTavern-EchoText) by [mattjaybe](https://github.com/mattjaybe) that stops data from being lost when SillyTavern is open in more than one place (for example a desktop tab and a phone). Built for [TravelingTavern](https://github.com/Tiffany-Warner/TravelingTavern), but works in any browser. All original features are unchanged; see the [original README](https://github.com/mattjaybe/SillyTavern-EchoText#readme) for them.
+A fork of [EchoText](https://github.com/mattjaybe/SillyTavern-EchoText) by [mattjaybe](https://github.com/mattjaybe) that fixes bugs in the original, starting with data being lost when SillyTavern is open in more than one place (for example a desktop tab and a phone). It adds no features: everything works as in the original, so see the [original README](https://github.com/mattjaybe/SillyTavern-EchoText#readme) for how to use EchoText.
 
 ## Changes
 
@@ -57,7 +57,7 @@ git clone https://github.com/Tiffany-Warner/SillyTavern-EchoText
 
 To install for all users, use `SillyTavern/public/scripts/extensions/third-party` instead.
 
-- Keep the folder name `SillyTavern-EchoText`; EchoText and TravelingTavern depend on it
+- Keep the folder name `SillyTavern-EchoText`; EchoText depends on it
 - Existing EchoText settings carry over
 - Hard refresh (Ctrl+Shift+R) after installing or updating
 
