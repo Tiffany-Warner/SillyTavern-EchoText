@@ -1,6 +1,6 @@
-# EchoText (TravelingTavern fork)
+# EchoText (bug-fix fork)
 
-A fork of [mattjaybe/SillyTavern-EchoText](https://github.com/mattjaybe/SillyTavern-EchoText), the floating iMessage-style texting panel for SillyTavern. The fork keeps every EchoText feature and changes only what the TravelingTavern Android app needs, starting with how threads are saved: each thread in its own stored file, merged before every save, so a SillyTavern page opened earlier can't erase messages saved from another page.
+A fork of [mattjaybe/SillyTavern-EchoText](https://github.com/mattjaybe/SillyTavern-EchoText), the floating iMessage-style texting panel for SillyTavern. The fork keeps every EchoText feature and only fixes bugs, starting with data loss when SillyTavern is open on more than one page: threads and memories are each stored in their own files and merged before every save, so a page opened earlier can't erase what another page saved. It adds no features.
 
 The original is the source of truth for EchoText's features. This fork stays as close to it as possible so upstream updates keep merging cleanly.
 
@@ -35,28 +35,28 @@ There is no build step: SillyTavern loads the extension's files directly. To try
 
 - Bump `n` for each completed fork change or fix
 - After merging an upstream release, take its version and reset `n` to 1 (e.g. `1.2.7+tt.1`)
+- `tt` is just the fork's label (it started as short for TravelingTavern, which the fork no longer targets). It stays as is
 
 ## Architecture
 
 - Upstream's files stay where they are. Fork code goes in **new files** wherever possible:
-    - `lib/thread-store.js` — the only code that knows where and how threads are stored: conversation IDs, file names, fetch, merge, save, migration
+    - `lib/thread-store.js` — the only code that knows where and how threads are stored: conversation IDs, file names, fetch, merge, save, migration. Also the shared file access (`createFileAccess`, `fileNameFor`) used by the other stores
+    - `lib/memory-store.js` — the only code that knows how memories are stored: scopes, change detection, merge, sync, migration
 - Edits to upstream files are as small as possible and each is marked with a `// fork: <feature>` comment, so an upstream merge shows exactly where the fork differs
 - Tests live in `test/`, one file per module (e.g. `test/thread-store.test.js`)
 
 ## Hard Rules
 
 - **Never lose a message.** A failed fetch is never treated as an empty thread, and no change deletes stored threads without a backup
-- **Keep the repo and folder name `SillyTavern-EchoText`.** SillyTavern installs into a folder named after the repo, and EchoText's paths and the TravelingTavern app's detection depend on it
+- **Keep the repo and folder name `SillyTavern-EchoText`.** SillyTavern installs into a folder named after the repo, and EchoText's paths depend on it
 - **Keep the settings key `extensionSettings.EchoText`**, so users moving from the original keep their settings
-- **Don't rename or remove the DOM ids and classes the TravelingTavern app uses** (`#et-portal`, `#et-fab`, `#et-panel`, `#et-char-name`, `#et-char-picker`, `.et-char-picker-item[data-char-key]`, `#et-messages`, `#et-input`, `#et-send-btn` and the rest listed in TravelingTavern's 1.7 spec). If one has to change, say so before changing it
-- **Don't change EchoText's UI or features** unless the current spec asks for it
+- **Only fix bugs.** No new features, and no changes to EchoText's UI unless the current spec asks for it to fix a bug
 - **Keep the original `LICENSE` unchanged** (MIT, mattjaybe's copyright)
 - **README.md describes only the fork.** Original features are linked to upstream's README, not copied
 
 ## Related Repos
 
 - **[mattjaybe/SillyTavern-EchoText](https://github.com/mattjaybe/SillyTavern-EchoText)** (`upstream` remote) — the original. Merge its updates in; never push to it
-- **[TravelingTavern](https://github.com/Tiffany-Warner/TravelingTavern)** — the Android app that uses this fork. Its `context/specs/phase1-7-chat-screen-spec.md` has the EchoText findings and the two-page test
-- **SillyTavern-EchoText-Proactive** (fork, later) — the server plugin for proactive messages while the page isn't visible
+- **[SillyTavern-EchoText-Proactive](https://github.com/mattjaybe/SillyTavern-EchoText-Proactive)** — the optional server plugin for proactive messages while no page is visible
 
-Changes needed in the app or the server plugin go in those repos, not here.
+Changes needed in the server plugin go in its repo, not here.

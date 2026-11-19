@@ -1,6 +1,6 @@
-# EchoText (TravelingTavern fork) — Project Schema
+# EchoText (bug-fix fork) — Project Schema
 
-> Your texts stay put, even with SillyTavern open on more than one device. A fork of EchoText that stores each thread safely, so the TravelingTavern app can use EchoText as its main chat.
+> Your texts and memories stay put, even with SillyTavern open on more than one device. A fork of EchoText that fixes bugs in the original and adds no features.
 
 ---
 
@@ -9,16 +9,15 @@
 - **Language**: JavaScript (classic scripts in `lib/`, upstream's pattern)
 - **Runs in**: SillyTavern, as a third-party extension (no build step)
 - **SillyTavern APIs**: `SillyTavern.getContext()`, `extension_settings`, `eventSource` / `event_types`, server endpoints
-- **Storage**: one stored file per conversation (location chosen in 1.1)
+- **Storage**: one stored file per conversation and per memory scope, in SillyTavern's user files
 - **Tests**: Node's built-in runner (`node:test`, `node:assert`), no dependencies
 - **Upstream**: [mattjaybe/SillyTavern-EchoText](https://github.com/mattjaybe/SillyTavern-EchoText) (MIT), merged in as `upstream`
 
 ## How It Fits Together
 
-- **SillyTavern (desktop):** runs this fork, which stores EchoText threads one file per conversation
-- **Any SillyTavern page:** a desktop browser tab, a phone browser, or the TravelingTavern app's WebView, each running the fork. All of them read and write the same thread files, merging before every save
-- **[TravelingTavern](https://github.com/Tiffany-Warner/TravelingTavern) (Android app):** shows the fork's thread as its main chat. Its 1.7, 1.7c and Phases 2–4 wait for Phase 1 here
-- **EchoText-Proactive (server plugin):** generates proactive messages while no page is visible; pages save them into threads through the fork's storage
+- **SillyTavern:** runs this fork as a normal third-party extension, in place of the original EchoText
+- **Any SillyTavern page:** a desktop browser tab or a phone browser, each running the fork. All of them read and write the same thread and memory files, merging before every save, so a page opened earlier can't erase what another page saved
+- **EchoText-Proactive (optional server plugin):** generates proactive messages while no page is visible; pages save them into threads through the fork's storage
 
 ---
 
@@ -37,11 +36,10 @@
 ## Phase 1 — Thread and Memory Storage
 
 > Goal: A message or memory saved from any open page is never erased by another page.
-> **Unblocks TravelingTavern** 1.7, 1.7c and Phases 2–4.
 
 - [x] 1.1 Per-thread storage — each conversation in its own file, merge before every save, reload on open / visible / before generating, automatic migration with a backup
 - [ ] 1.2 Memory storage — character and global memories in their own files, merged before every save, automatic migration with a backup (`context/specs/phase1-2-memory-storage-spec.md`)
-- [ ] 1.3 Two-device verification — the two-page test for threads and memories with a desktop tab and the TravelingTavern app, and with EchoText-Proactive installed (server plugins on)
+- [ ] 1.3 Two-device verification — the two-page test for threads and memories with a desktop tab and a phone browser, and with EchoText-Proactive installed (server plugins on)
 
 ---
 
@@ -55,36 +53,18 @@
 
 ---
 
-## Phase 3 — Proactive Messages Across Devices
+## Phase 3 — Duplicate Proactive Messages
 
-> Goal: One proactive message per trigger, no matter how many pages are open.
+> Goal: One proactive message per trigger, no matter how many pages are open. Every open page runs EchoText's own proactive scheduler, so the same character can text you from more than one page (an EchoText bug; to be confirmed in this phase's investigation).
 
 - [ ] Decide which side generates proactive messages (only the server plugin, or only one page at a time)
 - [ ] Prevent duplicates when several pages run EchoText's scheduler at once
-- [ ] Coordinate with the EchoText-Proactive fork (webhook for TravelingTavern notifications lives there)
 
 ---
 
-## Phase 4 — API for TravelingTavern
+## Out of Scope
 
-> Goal: The app can draw the thread natively instead of showing EchoText's panel.
-> Only if the app needs it — decided in TravelingTavern.
-
-- [ ] Small public API alongside the panel: send a message, read a thread, subscribe to new messages
-- [ ] The panel keeps working unchanged for browser users
-
----
-
-## Later Ideas
-
-- Group chat features inspired by the WhisperChat fork (group context in DMs, reverse injection, scene direction). The Phase 1 conversation ID format already leaves room for them
-- Real-time sync between open pages
-
----
-
-## Out of Scope (for now)
-
-- Changes to EchoText's UI or features beyond what the phases above need
+- New features or changes to EchoText's UI. This fork only fixes bugs; features belong in the original EchoText
 - Anything that only the original EchoText should decide (new features, redesigns)
 - Running without SillyTavern
 - Pushing changes to upstream

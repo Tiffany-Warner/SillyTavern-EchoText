@@ -22,7 +22,7 @@ Move EchoText's character and global memories out of SillyTavern's settings file
 ## Notes
 
 - Out of scope: emotional state, chat influence, proactive state, galleries, Chat Archives (Phase 2), Memory Books, real-time sync, UI changes
-- The two-device test with the TravelingTavern app is 1.3, after this
+- The two-device test (desktop tab + phone browser) is 1.3, after this
 
 ## References
 
