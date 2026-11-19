@@ -1,14 +1,48 @@
 # Phase 1.1 — Per-Thread Storage (done)
 
-## Problem
+## In plain words
 
-EchoText keeps every thread in `extensionSettings.EchoText`. SillyTavern's `saveSettings()` sends the **whole** settings file from each page's own copy, so a page that loaded earlier (e.g. a desktop tab) erases messages another page (e.g. a phone) saved since, as soon as it saves anything. Confirmed with a two-page test.
+EchoText's texting threads used to live inside SillyTavern's settings file. That one file holds *all* of SillyTavern's settings, and every open SillyTavern page (a browser tab, a second window, a phone) keeps its own copy of it in memory.
 
-## Fix
+When any page saves a setting, it doesn't save just that one change. It sends its **whole copy** of the settings file and replaces what's on the server. A page that was opened earlier still has an old copy, so when it saves, it puts the old version of every thread back. Anything you texted from another page since then is gone, with no warning.
 
-Each thread moves out of settings into **its own file** in SillyTavern's user files. Before every save, the page merges its changes with the stored file. A stale page can no longer erase another page's messages. Features, UI and the settings key are unchanged, apart from a loading state and Send being refused, with a toast, until the thread has loaded. No server plugin is needed.
+Think of a shared notebook where, instead of writing in it, everyone makes a photocopy, writes on their photocopy, and then swaps it in for the real notebook. Whoever swaps last wins, and everyone else's writing disappears.
+
+**What the fork changes:** each EchoText conversation now gets its **own file**. Before a page saves a conversation, it first reads the latest version from the server and combines it with its own changes, so nothing written from another page is thrown away. Settings still work the way they always did; only the threads moved out.
+
+## How to reproduce (original EchoText 1.2.6)
+
+1. Open SillyTavern in a browser tab (**Page A**) and open EchoText for any character.
+2. Open SillyTavern again in a second tab, window or device (**Page B**). Open EchoText for the same character, send a message and wait for the reply.
+3. Go back to **Page A** without reloading it. Change any setting, or send a message there. Either makes Page A save its (old) copy of the settings file.
+4. Reload **Page B**.
+
+**Expected:** the message and reply from step 2 are still there.
+**Actual:** they're gone. Page A's old copy replaced them.
+
+With the fork installed, the same steps keep every message on both pages.
+
+## What changes for the user
+
+- Nothing you'd notice day to day: EchoText's features, look and settings are the same
+- The first time a conversation is opened, it may briefly show a loading state while its file is fetched
+- Send is refused, with a short message, until the conversation has loaded, so a reply is never built on an incomplete thread
+- Existing threads move to the new files automatically the first time the fork runs, after a backup is written
+- No server plugin is needed
+
+---
+
+# Technical details
+
+The rest of this document is for developers: how the fix works, what was tested, and what's still open.
+
+## Summary
+
+EchoText keeps every thread in `extensionSettings.EchoText`. SillyTavern's `saveSettings()` sends the **whole** settings file from each page's own copy, so a page that loaded earlier erases messages another page saved since, as soon as it saves anything. The fix moves each thread into its own file in SillyTavern's user files and merges with the stored file before every save.
 
 ## Design
+
+In short: each conversation has a stable ID and its own file; every message gets an ID so two copies of the same thread can be matched up; and every save is "read the latest file, combine, write, check".
 
 **Storage.** `POST /api/files/upload` (`{ name, data: <base64> }`) writes atomically to `data/<user>/user/files/<name>`. Read with `GET /user/files/<name>` (`cache: 'no-store'`; 404 = no file). Delete with `POST /api/files/delete` (`{ path }`); there's no list endpoint, and none is needed since names come from IDs. SillyTavern requires names matching `^[a-zA-Z0-9_\-.]+$`, not starting with `.`, at most 255 characters. Request bodies can be up to 500 MB. There's no compare-and-swap, so saves read back (see Saving). All access goes through `lib/thread-store.js` (`createFileAccess`, `fileNameFor`), which the memory store (1.2) reuses.
 
@@ -58,11 +92,17 @@ File name: `echotext-thread-<slug>-<hash>.json`. `<slug>` is a readable prefix o
 
 ## Accepted limitations
 
+Rare cases where the fix still doesn't give the ideal result. None of them lose a message.
+
+
 - **Clock skew:** when two devices edit the same message, the device whose clock runs ahead wins. Adds and deletions aren't affected
 - **Edit after remote delete:** editing a message another page deleted brings it back
 - **Queue duplicates:** if a queue write fails after messages were added to the page, the next poll can add them again (a duplicate, never a loss)
 
 ## Not covered
+
+Threads were the most important thing to protect, but EchoText keeps other per-character data in the same settings file, and it can be overwritten the same way.
+
 
 Other per-character data in settings has the same overwrite risk. **Memories** (`characterMemories`, `globalMemories`) are the worst case, because `buildMemoryContext()` updates usage counts and calls `saveSettings()` whenever a reply injects an unpinned memory; they're handled in 1.2. The rest is Phase 2: `emotionState`, `untetheredInfluence`, `proactiveState`, `proactiveCharacterConfig`, `verbosityByCharacter`, `characterGalleries`, `galleryDescriptionOverrides`, `contextOverrides`, `savedChats`. (`insideJokes` has a default in `lib/config.js` but nothing reads or writes it.)
 
@@ -86,5 +126,8 @@ Partly done: migration (only an empty thread was migrated); proactive (the Trigg
 - **File API, checked live** in desktop Chrome on Windows: upload 200, exact UTF-8 round trip, missing file 404, delete 200. Upload returns `path` with a leading slash (`/user/files/<name>`), which `/api/files/delete` accepts. Uploads are atomic (`write-file-atomic`) and overwrite in place
 
 ## Upstream quirk (not changed)
+
+A separate bug in the original EchoText, found while testing. In plain words: if a group chat is open in SillyTavern, texting a single character in EchoText still files the texts under that group.
+
 
 While SillyTavern has a group chat open, EchoText treats every character as part of that group. Picking a character in EchoText's picker only clears EchoText's own group choice (`setOverrideGroupId(null)` in `lib/character-picker.js`), and `isGroupSession()` in `lib/group.js` then falls back to SillyTavern's open group. Texts to a single character go to their thread inside the group, and the "Group Chat" chip shows for non-members.
