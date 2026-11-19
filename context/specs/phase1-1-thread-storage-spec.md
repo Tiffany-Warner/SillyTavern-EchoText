@@ -1,267 +1,80 @@
-# Phase 1.1 — Per-Thread Storage
+# Phase 1.1 — Per-Thread Storage (done)
 
-## Overview
+## Problem
 
-Stop EchoText threads from being overwritten when SillyTavern is open in more than one place.
+EchoText keeps every thread in `extensionSettings.EchoText`. SillyTavern's `saveSettings()` sends the **whole** settings file from each page's own copy, so a page that loaded earlier (e.g. a desktop tab) erases messages another page (e.g. a phone) saved since, as soon as it saves anything. Confirmed with a two-page test.
 
-Today EchoText keeps every thread inside SillyTavern's settings (`extensionSettings.EchoText`, in six stores — see Conversation IDs). SillyTavern saves settings by sending its **whole** settings file, and every open page sends its own copy. So a page that loaded earlier (a desktop tab) can save its older copy and erase messages that another page (a phone) saved since. This was confirmed with a two-page test: a marker saved by one page disappeared after an older page saved without changing anything.
+## Fix
 
-This phase moves each thread out of the settings file into **its own stored file**, saved one thread at a time, and merges with what's already stored before each save. A stale page can then no longer erase another page's messages.
+Each thread moves out of settings into **its own file** in SillyTavern's user files. Before every save, the page merges its changes with the stored file. A stale page can no longer erase another page's messages. Features, UI (apart from a loading state) and the settings key are unchanged. No server plugin is needed.
 
-Everything else about EchoText stays the same: features, UI (apart from a loading state, see Loading), settings, and the settings key (`extensionSettings.EchoText`).
+## Design
 
-## Goals
+**Storage.** `POST /api/files/upload` (`{ name, data: <base64> }`) writes atomically to `data/<user>/user/files/<name>`. Read with `GET /user/files/<name>` (`cache: 'no-store'`; 404 = no file). There's no compare-and-swap, so saves read back (see Saving). All access goes through `lib/thread-store.js`.
 
-- A message saved from any open page is never lost because another page saves
-- Threads are saved one at a time, not as part of the whole settings file
-- Existing threads move over automatically, once, without loss
-- Works for anyone who installs the fork, with no server plugin required (SillyTavern's user files — see Notes)
-- Small, isolated change, so upstream updates from the original EchoText keep merging cleanly
+**Conversation IDs.** One per thread store:
 
-## Requirements
+| Settings store | Conversation ID |
+|---|---|
+| `chatHistory[charKey]` | `character:<charKey>:tethered` |
+| `untetheredHistory[charKey]` | `character:<charKey>:untethered` |
+| `groupChatHistory[groupId][charKey]` | `group:<groupId>:member:<charKey>:tethered` |
+| `groupUntetheredHistory[groupId][charKey]` | `group:<groupId>:member:<charKey>:untethered` |
+| `groupCombineHistory[groupId]` | `group:<groupId>:combined:tethered` |
+| `groupCombineUntetheredHistory[groupId]` | `group:<groupId>:combined:untethered` |
 
-### Investigation first (done — see Notes)
+File name: `echotext-thread-<slug>-<hash>.json`, lowercase (Windows ignores case), with a pure-JS 64-bit FNV-1a hash. `crypto.subtle` isn't used because it needs a secure context, which SillyTavern over plain `http://` on a LAN or VPN isn't. The conversation ID is also stored in the file; a mismatch on read is an error, never an empty thread.
 
-- [x] Every place EchoText reads or writes threads, including group chats, archives, proactive messages, swipes, reactions and read receipts
-- [x] How group chat threads are stored
-- [x] The shape of a stored message, and whether messages have stable IDs (they don't)
-- [x] Other per-character data in settings, listed in Notes for Phase 2
-- [x] Storage location chosen: SillyTavern's user files. Still to check by hand from the Android WebView
+**File format.** `{ format: 1, conversationId, updatedAt, messages }`. Messages keep EchoText's fields; the store adds `id`, `fp` and `updatedAt`. Deleted messages become text-free markers (`id`, `deleted: true`, `updatedAt`, `fp`), never pruned and never shown to EchoText.
 
-### Storage location
+**Message IDs.** EchoText messages have no IDs, so they get deterministic ones:
+- `fp` = hash of `send_date`, `is_user`, `mes` (+ `charKey` in combined mode), computed once and stored, so later edits and swipes still match older copies
+- `id` = hash of conversation ID + `fp` + occurrence count among identical `fp`s
+- An ID-less message first takes the ID of a stored message or marker with the same `fp`. Messages with an `id` match by `id` only
+- **Settings copies** (migration, or old data a stale page wrote back to settings) get `updatedAt: 0`: they can add missing messages but never replace a stored message or revive a marker
 
-**SillyTavern's own user file storage**, through its existing file API, so no server plugin is needed (endpoints, file-name rules and overwrite behaviour in Notes).
+**Seen set.** Per conversation, the page keeps a snapshot of `id → content hash` (not object references, because EchoText edits shared message objects in place) and a record of its own deletions.
 
-All access goes through one new module (see Code layout), so the location can change later without touching the rest of EchoText.
+**Saving** (debounced per conversation, never parallel, flushed when the page is hidden):
+1. No save until the conversation's first load succeeds; earlier saves wait in memory
+2. Fetch the stored file
+3. Work out the page's changes: assign IDs; seen IDs missing from the array become deletion markers (EchoText always deletes by saving a shorter array); a changed content hash gets `updatedAt = now`. A message the page itself deleted and brings back (cancel-restore, loading an archive) is revived; a stale copy of a deleted message stays deleted
+4. Merge by `id`: keep everything from both sides; newer `updatedAt` wins, the stored copy wins ties; a marker beats any live copy that isn't newer
+5. Order: the page's own order; messages it never saw slot in by `send_date`, then `id`
+6. Write, then read back. If any of the page's changes is missing, merge and write again (up to 3 retries with a 100–400 ms random delay), then keep the page's copy for the next save
+7. Replace the page's copy with the merged result and re-render if it changed
 
-### Conversation IDs
+**Loading.** `getChatHistory()` stays synchronous and returns the store's in-memory copy. Threads reload when the panel shows them, when the page becomes visible, and before Send. The first load shows a loading state and merges any settings copy. A 404 is an empty thread; any other failure keeps the current copy and retries on the next trigger. While a reply is generating, other pages' changes are held and applied when it finishes.
 
-Each thread is stored under a **conversation ID**. EchoText has six thread stores in settings; each maps to one ID form:
+**Proactive messages.** The scheduler and the EchoText-Proactive queue poll save by conversation ID through the same merge. The queue now acks the server **after** the write succeeds (upstream acked first, so a failed save lost the message).
 
-| Settings store | Shape | Conversation ID |
-|---|---|---|
-| `chatHistory` | `[charKey] → messages` | `character:<charKey>:tethered` |
-| `untetheredHistory` | `[charKey] → messages` | `character:<charKey>:untethered` |
-| `groupChatHistory` | `[groupId][charKey] → messages` | `group:<groupId>:member:<charKey>:tethered` |
-| `groupUntetheredHistory` | `[groupId][charKey] → messages` | `group:<groupId>:member:<charKey>:untethered` |
-| `groupCombineHistory` | `[groupId] → messages` | `group:<groupId>:combined:tethered` |
-| `groupCombineUntetheredHistory` | `[groupId] → messages` | `group:<groupId>:combined:untethered` |
+**Migration** (one time, automatic, safe to repeat). First write a backup of all six stores to `echotext-backup-<timestamp>.json` and record `threadStorage = { format: 1, backupWritten: true }`; if the backup fails, don't migrate. Then merge every thread still in settings into its file as a settings copy, remove it from settings and call `saveSettings()`. Any thread that reappears in settings later is merged again.
 
-`charKey` is EchoText's existing key: `char.avatar || char.name || 'unknown'`.
+**Chat Archives** stay in settings. Saving reads through the store; loading an archive replaces the thread (unseen messages become markers, archive messages are revived).
 
-The file name is `echotext-thread-<slug>-<hash>.json`:
+**Code layout.** All logic is in `lib/thread-store.js`; its ID, fingerprint and merge functions are pure and unit-tested. Edits to upstream files are small and marked `// fork: thread storage`. Reload before generating runs on Send only, because regenerate, re-send and swipe act on on-screen positions that a reload could shift; their saves still merge.
 
-- `<slug>`: a short, lowercase, readable prefix of the ID, reduced to `[a-z0-9-]`
-- `<hash>`: a pure-JS 64-bit FNV-1a hash of the UTF-8 conversation ID, as lowercase hex
-- Lowercase only, because Windows file names ignore case. `crypto.subtle` isn't used, because the TravelingTavern WebView over plain `http://` isn't a secure context
-- The conversation ID is also stored inside the file. On read, an ID that doesn't match is an error, never an empty thread
+## Accepted limitations
 
-Later group-chat features (for example the WhisperChat ideas) fit this format with no change to it.
+- **Clock skew:** when two devices edit the same message, the device whose clock runs ahead wins. Adds and deletions aren't affected
+- **Edit after remote delete:** editing a message another page deleted brings it back
+- **Queue duplicates:** if a queue write fails after messages were added to the page, the next poll can add them again (a duplicate, never a loss)
 
-### Thread file format
+## Not covered
 
-```json
-{
-  "format": 1,
-  "conversationId": "character:Example Character.png:tethered",
-  "updatedAt": 1795000000000,
-  "messages": [
-    { "id": "…", "fp": "…", "updatedAt": 1795000000000, "...": "EchoText's existing message fields, unchanged" },
-    { "id": "…", "deleted": true, "updatedAt": 1795000000000, "fp": "…" }
-  ]
-}
-```
+Other per-character data in settings has the same overwrite risk: `characterMemories`, `globalMemories`, `emotionState`, `untetheredInfluence`, `proactiveState`, `proactiveCharacterConfig`, `verbosityByCharacter`, `insideJokes`, `characterGalleries`, `galleryDescriptionOverrides`, `contextOverrides`, `savedChats`. Memories are the worst case: `buildMemoryContext()` updates usage counts and calls `saveSettings()` on every reply that injects memories.
 
-- `format` lets future versions change the layout safely
-- Messages keep EchoText's existing fields. `thread-store.js` adds `id`, `fp` and `updatedAt`. It doesn't change the places in EchoText that create messages
-- **Deletion markers** keep only `id`, `deleted: true`, `updatedAt` and `fp`, with no message text. They aren't pruned in 1.1, and are hidden from EchoText (it never sees them)
+## Testing (EchoText 1.2.6, SillyTavern 1.19.0, desktop Chrome)
 
-### Message IDs and fingerprints
+Automated: `node --test` covers file names, IDs, settings copies, deletions, restores, the seen set, merge, ordering and idempotent migration.
 
-A message without an `id` gets a **deterministic** one, so the same message gets the same ID on every page and every run:
+Manual, passed 2026-11-18:
+- Two-page test: page B's message survives page A saving its older copy
+- Restart, server briefly unreachable, Chat Archives (save, load, Markdown export)
+- Delete, regenerate (including combined mode), cancel, Clear History, in solo and group chats, checked on disk
 
-- **Fingerprint** (`fp`): a hash of `send_date`, `is_user` and `mes`, plus `charKey` in combined mode
-- **ID**: a hash of `conversationId` + `fp` + occurrence count, where the count is the message's position among the messages with the same `fp` in that thread (0, 1, 2, …)
-- `fp` is computed once, when the ID is assigned, and stored on the message. A later edit or swipe changes `mes` (and swipes change `send_date`) but not `fp`, so an older, unedited copy still matches
-- **Matching (ID-less messages only):** before minting a new ID, an ID-less message whose `fp` matches an existing message or deletion marker in the stored thread takes that ID. Occurrences match in order. Messages that already have an `id` are matched by `id`, never by `fp`
-- **Settings copies** (migration, and stale copies written back into settings by another page or the original EchoText) match by `fp` and get `updatedAt: 0`. They can only **add** messages missing from the file; they never replace a stored message or a deletion marker
+Partly done: migration (only an empty thread was migrated); proactive (the Trigger Message button works; the automatic scheduler wasn't observed); the loading state (too fast to see on desktop). Not tested on mobile or with EchoText-Proactive's server plugin.
 
-### Restores
+## Upstream quirk (not changed)
 
-- A message **the page itself deleted** and then brings back stays live, with a new `updatedAt`. This covers a cancelled generation restoring its backup array
-- **Loading an archive** counts as a page restore: archive messages that match a deletion marker are revived, not left deleted
-- Page restores match the page's own-deletions record (see Seen set) **by `id`**. An ID-less restored message (for example from an archive saved before 1.1) first gets its ID by `fp` matching, then counts as restored
-- A stale copy from settings or another page that matches a deletion marker **stays deleted**
-
-### Seen set
-
-Per conversation, each page keeps:
-
-- a **snapshot** of `id → content hash` for every live message it last loaded or saved. It's a snapshot, not references to the live array: EchoText edits message objects in place and shares them between arrays, so references would always look unchanged
-- a record of **the page's own deletions** (IDs it turned into markers)
-
-Both are updated after every load and every save.
-
-### Saving: merge, then write
-
-**No save for a conversation until its first load has succeeded** (see Loading). Saves made before that, including proactive ones, stay in memory and are written once the load succeeds.
-
-Before each save of a thread:
-
-1. Fetch the stored file for that conversation
-2. Work out this page's changes against its seen set (see Seen set):
-    - Assign IDs to ID-less messages (see Message IDs)
-    - Seen IDs missing from the page's array become **deletion markers** and go into the page's own-deletions record. EchoText deletes by saving a shorter array (truncate, re-send, regenerate, cancel-restore, Clear History, loading an archive), so this is how its deletions are recorded
-    - A message whose content hash differs from the seen snapshot gets `updatedAt = now`. This catches in-place edits, swipes, reactions and read receipts
-    - Restores are handled as in Restores
-3. Merge with the stored file by `id`:
-    - Messages present in either are kept
-    - Present in both: the newer `updatedAt` wins. **On equal `updatedAt`, the stored copy wins**
-    - A deletion marker beats any live copy that isn't newer
-    - Messages in the file that this page never saw are kept
-4. **Order:** the page's array order for its own messages, so a reply stitched into the middle (combined-mode regenerate) stays there. Messages this page never saw are slotted in by `send_date`, then `id`
-5. Write the merged thread
-6. **Read back** the file. If any of this page's messages or markers is missing (another page wrote at the same moment), merge and write again. At most **3 retries**, each after a short random delay (e.g. 100–400 ms). After that, log it and keep the page's copy for the next save
-7. Replace the page's copy with the merged result (live messages only), update the seen set, and re-render if it changed (but see Generations)
-
-The ID, fingerprint and merge logic are **pure functions** (no DOM, no network), so they can be tested on their own.
-
-Saves are debounced per conversation (e.g. 500 ms), never run in parallel for the same conversation, and never batched with SillyTavern's settings save. Pending saves are **flushed when the page becomes hidden** (`visibilitychange` → `hidden`), since a phone may suspend the page right after.
-
-### Loading and staying fresh
-
-- EchoText keeps calling `getChatHistory()` synchronously. `thread-store.js` keeps the last merged thread per conversation in memory, and `getChatHistory()` returns that copy (live messages only)
-- Load a thread from its file when the panel shows that conversation. Until the **first** load of that conversation succeeds, the panel shows a **loading state** instead of the thread, and no save is written (see Saving)
-- A conversation's first load also **merges its settings copy**, if one is still in settings (as a settings copy — see Message IDs), so a thread written back by a stale page is picked up without waiting for migration
-- A **404 is a finished load**: the thread is empty, plus any settings copy. It is not a failure
-- Any other failure (server unreachable, bad file, conversation ID mismatch) is never treated as an empty thread. On a first load, the panel stays in its loading state with the error and retries on the next trigger. On a later reload, the page keeps showing its copy and retries on the next trigger
-- Reload (fetch + merge) when the panel opens, when the page becomes visible again, and before generating a reply, so a page that has been in the background picks up what other pages saved. Re-render only if something changed
-- Thread reads in `lib/emotion-system.js` and `lib/settings-modal.js` also go through `thread-store.js`
-
-### Generations
-
-- The "before generating" reload runs **before** EchoText takes its backup array, so a cancel restores the fresh thread
-- While a generation is running, merged changes from other pages are **not applied** to the page's copy or the panel. They are applied when the generation finishes or is cancelled. Saves during a generation still merge with the stored file as usual; only applying the result to the page waits
-
-### Proactive messages
-
-- The scheduler and the EchoText-Proactive queue poll in `lib/proactive-messaging.js` write to characters that may not be shown, so `thread-store.js` loads and saves **by conversation ID**, not only for the current character
-- Both go through the same merge-then-write save, not the settings file
-- The queue poll **acks the server only after the write succeeds** (today it acks before saving, so a failed save loses the message)
-- Only one page takes each queued message (unchanged); the merge keeps it safe from other pages afterwards
-
-### Migration (one time, automatic)
-
-**Backup first.** Before the first migration, write a one-time backup of all six stores to a single file (e.g. `echotext-backup-<timestamp>.json`), log where it is, and record `extensionSettings.EchoText.threadStorage = { format: 1, backupWritten: true }`. If the backup write fails, **don't migrate**: leave everything in settings and try again on the next load. A page that sees `backupWritten: true` doesn't write another backup.
-
-Then, on load, for each thread still found in any of the six settings stores:
-
-1. Treat it as a settings copy: IDs by fingerprint, `updatedAt: 0` (see Message IDs), matching the stored file's messages and deletion markers
-2. If no file exists for that conversation, write one from the settings copy
-3. If a file exists, merge the settings copy into it, so running migration twice, or on two pages at once, can't lose or duplicate messages
-4. After a successful write, remove that thread from the settings object
-5. Once all threads have been handled, call `saveSettings()` so the removal is saved
-
-There is no `migrated` list: whether a thread still needs migrating is simply whether it is still in settings.
-
-Migration must be safe to repeat: a stale page (or the original EchoText on another device) may write old thread data back into settings later. Any thread found in settings is merged into its file again, never trusted over it. Its messages match their stored counterparts by fingerprint, so they aren't duplicated, they can't overwrite newer stored versions, and messages already deleted stay deleted.
-
-### Archives
-
-- Chat Archives (`savedChats`) stay in settings for 1.1; moving them is Phase 2
-- Saving an archive reads the current thread through `thread-store.js`
-- Loading an archive replaces the thread: every message the page has seen that isn't in the archive becomes a deletion marker, and the archive's messages are added or revived as a page restore (see Restores)
-- The Markdown export of a saved archive keeps working unchanged
-
-### Code layout
-
-- New module `thread-store.js`: conversation IDs, file names, IDs and fingerprints, fetch, merge, save, migration. The only code that knows where threads live
-- Existing EchoText code calls `thread-store.js` instead of reading or writing the six stores directly: `getChatHistory` / `saveChatHistory` / `clearChatHistory` in `index.js`, the group-history functions in `lib/group.js`, the two direct writes in `lib/proactive-messaging.js`, and the thread reads in `lib/emotion-system.js` and `lib/settings-modal.js`
-- Keep edits to existing files as small as possible, and mark each one with a short `// fork: thread storage` comment, so upstream merges show clearly where the fork differs
-
-### Out of scope
-
-- Other per-character data in settings (emotional state, chat influence, memories, proactive state, Chat Archives). It has the same overwrite risk but losing it is less harmful than losing messages. Listed in Notes for a later phase
-- Pruning deletion markers
-- Real-time sync between open pages (pages pick up changes on the triggers above, not instantly)
-- Group chat features from other forks (WhisperChat). The conversation ID format leaves room for them
-- Any change to EchoText's UI beyond the loading state
-
-## Tests
-
-- **Automated** (Node's built-in test runner, no dependencies), for the pure functions in `thread-store.js`:
-    - Conversation ID → file name for avatars with spaces, unicode, dots and quotes; names are lowercase, allowed by SillyTavern, and distinct for IDs that differ only in case
-    - IDs: deterministic across runs; repeated identical messages get distinct IDs by occurrence; an ID-less copy takes the ID of a matching message or deletion marker; an edited or swiped message still matches its unedited copy by `fp`; a message with an `id` is never matched by `fp`
-    - Settings copies: `updatedAt: 0`, add missing messages only, never replace a stored message or revive a marker
-    - Deletions: seen IDs missing from the page's array become markers; markers keep only `id`, `deleted`, `updatedAt`, `fp`; a marker beats a stale copy
-    - Restores: a cancel-restore by the same page brings the message back; loading an archive revives matching messages, including ID-less ones matched by `fp`
-    - Seen set: an in-place edit of a shared message object is detected as a change
-    - Merge: disjoint messages, same message edited on both sides (newer wins), equal `updatedAt` (stored wins), messages the page never saw are kept, empty inputs
-    - Order: the page's order is kept (a reply stitched into the middle stays there); unseen messages slot in by `send_date`, then `id`
-    - Migration is idempotent: running it twice, or on a stale settings copy, gives the same file with no duplicates
-- **Manual, required before marking Done:**
-    - [x] **The two-page test** (two desktop windows side by side; passed 2026-11-18 in desktop Chrome against SillyTavern 1.19.0. Switching back to a tab also reloads it): page A loads; page B sends a message; page A (still on its old copy) changes a setting or sends its own message. Page B's message is still there in both pages after a reload
-    - [ ] Smoke check in the TravelingTavern app's WebView: a thread loads and a sent message is saved to its file (confirms the file API works there)
-    - [~] Migration from an existing install: all existing threads appear (solo, untethered, group and combined), the backup file exists, and the six stores are empty in settings. **Partly:** on 2026-11-18 the only thread in settings was one empty untethered thread; it moved, the backup was written and the stores were emptied. Not yet tried with real messages or group threads
-    - [x] Restart SillyTavern: threads load from their files (passed 2026-11-18)
-    - [~] Panel shows its loading state on first open of a conversation, then the thread. **Not observed:** loads are instant on desktop; can be seen with DevTools network throttling. The logic is covered by automated tests
-    - [x] Server briefly unreachable: the thread stays visible and saves after the connection returns (passed 2026-11-18; SillyTavern's own "settings could not be saved" toast appears meanwhile, as expected)
-    - [x] Delete, re-send, regenerate (including combined mode), cancel a generation, Clear History: the result survives a reload on another page. **Passed 2026-11-18** in solo chats and in a group (individual and combined mode, two-window test in both), each checked on disk: unique IDs, no duplicates, text-free markers, and a combined-mode regenerated reply stored in place above the next character's older reply. Re-send (regenerate on your own message) was not tried separately; it truncates and saves like delete
-    - [x] Chat Archives: save, load and Markdown export still work (passed 2026-11-18)
-    - [~] Proactive messages from the in-page scheduler land in the thread. **Partly:** the Trigger Message button (saves through `saveChatHistory`) passed 2026-11-18. A message from the automatic scheduler (the edited `runProactiveTickForChar` path) still to be seen
-- The full two-device test (a desktop tab and the TravelingTavern app, and with EchoText-Proactive installed and server plugins on) is **1.3 Two-device verification** in `project-schema.md` (renumbered when memory storage became 1.2), not part of 1.1
-
-## Notes
-
-- Upstream: [mattjaybe/SillyTavern-EchoText](https://github.com/mattjaybe/SillyTavern-EchoText) (MIT). Keep the original `LICENSE` unchanged
-- Findings from the TravelingTavern investigation (EchoText 1.2.6): threads live in six stores in `extensionSettings.EchoText` (see Conversation IDs); SillyTavern's `saveSettings()` sends the whole settings file; EchoText-Proactive keeps its queue in server memory and each page polls it every 60 s (Tethered mode only, for the character it shows), then saves the whole settings file
-- Repo name stays `SillyTavern-EchoText`: SillyTavern installs extensions into a folder named after the repo, and EchoText's paths and the TravelingTavern app's detection use that name
-
-**How step 4 was wired (2026-11-18):**
-- `emotion-system.js` and `settings-modal.js` already read through the `getChatHistory` that `index.js` passes them, and proactive's group reads go through `group.js`, so none of them needed edits
-- **Generations:** instead of editing upstream's 12 `isGenerating =` lines, the store is given `isGenerating()` and applies held changes on the first read after the generation ends
-- **Reload before generating** happens on **Send** only (`handleSend` wraps upstream's handler, renamed `handleSendNow`). Regenerate, re-send and swipe act on a message by its position on screen, and a reload just before them could shift those positions. Their saves still merge, so nothing is lost; the reply may just not see another page's newest message. Send is refused, with a toast, if the thread hasn't loaded
-- **Untethered first-use reset:** upstream resets a character's untethered state when it first finds no thread in settings. That now happens when the thread file doesn't exist on first load, and an empty file is written so it happens once. Migration writes a file for an empty migrated thread for the same reason
-- **EchoText-Proactive queue:** reads the character's solo tethered thread (upstream read whatever the panel showed but wrote the solo thread). If the thread can't be loaded, or the write fails, messages aren't acked and stay on the server. If a write fails after the messages were added to the page, the next poll can add them a second time: a duplicate, never a loss
-
-**Upstream quirk found while testing (not changed by the fork):** while SillyTavern has a group chat open, EchoText treats every character as part of that group. Picking a character in EchoText's picker only clears EchoText's own group choice (`setOverrideGroupId(null)` in `lib/character-picker.js`), and `isGroupSession()` in `lib/group.js` then falls back to SillyTavern's open group. Texts to a single character therefore go to their thread *inside* the group, and the "Group Chat" status chip shows for non-members too. To text privately, open the character's own chat in SillyTavern first. Worth reporting to the original author.
-
-**Accepted for 1.1:**
-- **Clock skew.** `updatedAt` comes from each device's clock, so when two devices edit the same message, a device whose clock runs ahead can win. Only same-message edits on two devices are affected; adds and deletions don't depend on it
-- **Edit after a remote delete.** A page that edits a message another page already deleted brings it back, because its edit is newer than the deletion marker (newer wins)
-
-### Investigation findings (EchoText 1.2.6, SillyTavern 1.19.0, 2026-11-18)
-
-**Where threads live.** Six stores in `extensionSettings.EchoText`, listed under Conversation IDs above.
-
-**Who reads and writes them.**
-- `index.js`: `getChatHistory` / `saveChatHistory` / `clearChatHistory` (CHAT HISTORY MANAGEMENT section) are the main path, with about 21 `getChatHistory()` calls and 22 `saveChatHistory` calls. `getChatHistory` is **synchronous**. Settings init at the top of the file creates `chatHistory` / `untetheredHistory`
-- `lib/group.js`: `get/save/clearGroupChatHistory`, `get/save/clearCombineHistory`. The only code that touches the four group stores
-- `lib/proactive-messaging.js` bypasses `saveChatHistory` in two places: the scheduler tick reads and writes `s.chatHistory[characterKey]` directly for **any** character, and the EchoText-Proactive queue poll writes `s.chatHistory[characterKey]` directly after acking the queue
-- `lib/saveload-modal.js` (Chat Archives) reads with `getChatHistory` and loads an archive with `saveChatHistory(entry.history)`
-- `lib/emotion-system.js` and `lib/settings-modal.js` only read
-- No chat import or JSON export exists. The only export is a Markdown export of a saved archive (`saveload-modal.js` `exportSave`)
-
-**Message shape.** No `id` and no per-message `updatedAt`. Fields seen: `is_user`, `mes`, `send_date`, `meta` (`receipt`, `proactive`, `proactiveType`, `serverDeferred`), `swipes`, `swipeIndex`, `reactions`, `charReaction`, `memoryHighlights`, `imageAttachment`, and `charName` / `charKey` (combined mode). Swipes, reactions, receipts and edits change the message in place, then the whole array is saved.
-
-**Extra message fields survive.** No EchoText path rebuilds a message object from chosen fields, so `id`, `fp` and `updatedAt` are kept. Checked: working copies (`[...history]`) keep the same objects; swipes (`syncMsgFromSwipe`, `initSwipesOnMessage`, `pruneSwipesOnPrevLastChar`), edits, reactions and read receipts (`setUserMessageReceiptState`) change the existing object in place; group getters and archive saves deep-copy with `JSON.parse(JSON.stringify())`, which keeps all fields. New objects are only built for new messages (replies, proactive and server-queue messages), which get new IDs. Swipe navigation also changes `send_date`, which is why `fp` is computed once and stored.
-
-**How EchoText deletes.** Never per message; always by saving a shorter array: the delete action truncates from the message down, re-send truncates, combined-mode regenerate removes one message and stitches a new reply into the middle, a cancelled generation restores a backup array, Clear History saves `[]`, and loading an archive replaces the thread.
-
-**Other per-character data still in settings** (Phase 2): `emotionState`, `untetheredInfluence`, `characterMemories` (and `globalMemories`), `proactiveState`, `proactiveCharacterConfig`, `verbosityByCharacter`, `insideJokes`, `characterGalleries`, `galleryDescriptionOverrides`, `contextOverrides`, and `savedChats` (Chat Archives: full copies of threads, in four namespaces).
-
-**Storage location: SillyTavern's user files.**
-- Write: `POST /api/files/upload` with `{ name, data: <base64> }` and `getRequestHeaders()` (from `SillyTavern.getContext()`). Writes atomically (`write-file-atomic`) to `data/<user>/user/files/<name>` and overwrites in place
-- Read: `GET /user/files/<name>`, with `cache: 'no-store'` (the server only disables caching for images in Firefox). Returns 404 when the file doesn't exist
-- Delete: `POST /api/files/delete` with `{ path }`. No list endpoint; not needed, since names come from conversation IDs
-- File names must match `^[a-zA-Z0-9_\-.]+$`, can't start with `.`, and must pass `sanitize-filename` (255 characters at most). `.json` is allowed; SillyTavern-MemoryBooks already stores `.json` files there
-- Request bodies up to 500 MB, so thread size isn't a concern
-- No compare-and-swap on upload, which is why saves read back (Saving, step 6)
-- **Checked live** (2026-11-18, console in desktop Chrome 157 on Windows, against SillyTavern 1.19.0): upload 200, UTF-8 round trip exact, a missing file returns 404, delete 200. Upload returns `path` with a leading slash (`/user/files/<name>`), which `/api/files/delete` accepts. The TravelingTavern WebView check is still to do
-
-**Decisions confirmed** (2026-11-18): in-memory cache with synchronous reads; deletions from the page's seen set (a content-hash snapshot plus own-deletions record); IDs and `updatedAt` added by `thread-store.js`, with deterministic fingerprint IDs and `fp` stored on each message; settings copies at `updatedAt: 0`; page restores (including archive loads) revive by `id`; equal `updatedAt` → stored wins; page-array ordering; proactive saves by conversation ID with ack after write; read-back with at most 3 retries; no saves before first load succeeds; remote changes held during a generation; flush on hide; Chat Archives stay in settings for 1.1; deletion markers without text and without pruning; migration only after a successful backup; clock skew and edit-after-delete accepted; full two-device test moved to 1.2.
-
-## References
-
-- README.md — "What This Fork Adds"
-- TravelingTavern: [phase1-7-chat-screen-spec.md](https://github.com/Tiffany-Warner/TravelingTavern/blob/dev/context/specs/phase1-7-chat-screen-spec.md) — EchoText findings and the two-page test
+While SillyTavern has a group chat open, EchoText treats every character as part of that group. Picking a character in EchoText's picker only clears EchoText's own group choice (`setOverrideGroupId(null)` in `lib/character-picker.js`), and `isGroupSession()` in `lib/group.js` then falls back to SillyTavern's open group. Texts to a single character go to their thread inside the group, and the "Group Chat" chip shows for non-members.
